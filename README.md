@@ -202,3 +202,5 @@ Each window has its own TabManager; only the active tab (or the split pair) stay
 ## License
 
 Galho's own source code is [MIT](LICENSE). The app depends on [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell), which is licensed under GPL-3.0 — binary distributions that bundle it are governed by GPL-3.0 terms.
+
+The Árvore name and logo are trademarks of Árvore Educação and are not covered by the MIT license. Forks and redistributions must not use them in a way that suggests endorsement by Árvore.

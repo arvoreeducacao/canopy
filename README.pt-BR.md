@@ -204,3 +204,5 @@ Cada janela tem seu TabManager; so a aba ativa (ou o par do split) fica attachad
 ## Licenca
 
 O codigo do Galho e [MIT](LICENSE). O app depende de [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell), que e GPL-3.0 — distribuicoes binarias que a incluem ficam sujeitas aos termos da GPL-3.0.
+
+O nome e o logo da Arvore sao marcas da Arvore Educacao e nao sao cobertos pela licenca MIT. Forks e redistribuicoes nao devem usa-los de forma que sugira endosso da Arvore.
