@@ -160,6 +160,8 @@ function focusedEntry() {
 }
 
 function createWindow(winState = {}) {
+  const { nativeTheme } = require('electron')
+  const themeBg = () => nativeTheme.shouldUseDarkColors ? '#1B1B22' : '#F4F2FA'
   const win = new BrowserWindow({
     width: 1480,
     height: 940,
@@ -168,13 +170,16 @@ function createWindow(winState = {}) {
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 18 },
-    vibrancy: 'sidebar',
-    visualEffectState: 'followWindow',
-    backgroundColor: process.platform === 'darwin' ? '#00000000' : '#1B1B22',
+    backgroundColor: themeBg(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js')
     }
   })
+  const themeListener = () => {
+    if (!win.isDestroyed()) win.setBackgroundColor(themeBg())
+  }
+  nativeTheme.on('updated', themeListener)
+  win.on('closed', () => nativeTheme.removeListener('updated', themeListener))
 
   win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'))
   win.once('ready-to-show', () => {

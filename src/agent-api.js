@@ -45,13 +45,26 @@ const cursorSetup = () => `(() => {
   if (window.__galhoCursor) return
   const cursor = document.createElement('div')
   cursor.id = '__galho_cursor'
-  cursor.style.cssText = 'position:fixed;z-index:2147483647;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:none;left:50%;top:40%;transition:left 0.4s cubic-bezier(0.2,0.7,0.3,1),top 0.4s cubic-bezier(0.2,0.7,0.3,1),opacity 0.3s;opacity:0'
-  const ring = document.createElement('div')
-  ring.style.cssText = 'position:absolute;inset:-5px;border-radius:50%;background:conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6);filter:blur(5px);opacity:0.9;animation:__galho_spin 2.6s linear infinite'
-  const core = document.createElement('div')
-  core.style.cssText = 'position:absolute;inset:5px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.98) 0 40%,rgba(255,255,255,0.35) 75%,transparent)'
-  cursor.appendChild(ring)
-  cursor.appendChild(core)
+  cursor.style.cssText = 'position:fixed;z-index:2147483647;width:24px;height:24px;pointer-events:none;left:50%;top:40%;transition:left 0.4s cubic-bezier(0.2,0.7,0.3,1),top 0.4s cubic-bezier(0.2,0.7,0.3,1),opacity 0.3s;opacity:0'
+  const halo = document.createElement('div')
+  halo.style.cssText = 'position:absolute;left:-9px;top:-9px;width:30px;height:30px;border-radius:50%;background:conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6);filter:blur(9px);opacity:0.55;animation:__galho_spin 2.6s linear infinite'
+  const arrow = document.createElement('div')
+  arrow.style.cssText = 'position:absolute;left:0;top:0;width:19px;height:24px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4))'
+  const svgNs = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(svgNs, 'svg')
+  svg.setAttribute('viewBox', '0 0 19 24')
+  svg.setAttribute('width', '19')
+  svg.setAttribute('height', '24')
+  const arrowPath = document.createElementNS(svgNs, 'path')
+  arrowPath.setAttribute('d', 'M1 1v17.5l4.6-4.2 3 7.2 3.4-1.4-3-7.1h6.5z')
+  arrowPath.setAttribute('fill', '#FFFFFF')
+  arrowPath.setAttribute('stroke', '#1B1B22')
+  arrowPath.setAttribute('stroke-width', '1.4')
+  arrowPath.setAttribute('stroke-linejoin', 'round')
+  svg.appendChild(arrowPath)
+  arrow.appendChild(svg)
+  cursor.appendChild(halo)
+  cursor.appendChild(arrow)
   const veil = document.createElement('div')
   veil.id = '__galho_veil'
   veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;background-color:rgba(12,8,24,0.32);background-image:radial-gradient(rgba(255,255,255,0.10) 1px,transparent 1.4px);background-size:9px 9px;opacity:0;transition:opacity 0.5s'

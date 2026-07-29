@@ -1,20 +1,22 @@
 :root {
   --space-color: #8B5CF6;
+  --bg: #F4F2FA;
   --fg: rgba(40, 35, 60, 0.95);
   --fg-dim: rgba(40, 35, 60, 0.72);
-  --hover: rgba(255, 255, 255, 0.45);
-  --active-bg: rgba(255, 255, 255, 0.82);
-  --chip-bg: rgba(255, 255, 255, 0.5);
+  --hover: rgba(30, 20, 60, 0.07);
+  --active-bg: #FFFFFF;
+  --chip-bg: rgba(30, 20, 60, 0.055);
   --shadow: 0 1px 4px rgba(20, 10, 50, 0.10);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --bg: #1B1B22;
     --fg: rgba(240, 238, 250, 0.92);
     --fg-dim: rgba(240, 238, 250, 0.62);
-    --hover: rgba(255, 255, 255, 0.09);
-    --active-bg: rgba(255, 255, 255, 0.16);
-    --chip-bg: rgba(255, 255, 255, 0.08);
+    --hover: rgba(255, 255, 255, 0.07);
+    --active-bg: rgba(255, 255, 255, 0.13);
+    --chip-bg: rgba(255, 255, 255, 0.06);
     --shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   }
 }
@@ -39,7 +41,7 @@ input:focus-visible,
 
 html, body {
   height: 100%;
-  background: transparent;
+  background: var(--bg);
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: 13px;
   color: var(--fg);
@@ -51,11 +53,9 @@ body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--space-color) 26%, transparent), transparent 60%),
-    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--space-color) 14%, transparent), transparent 55%);
+  background: color-mix(in srgb, var(--space-color) 7%, transparent);
   pointer-events: none;
-  transition: background 0.5s ease;
+  transition: background 0.4s ease;
 }
 
 #sidebar {
