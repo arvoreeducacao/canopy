@@ -2,25 +2,27 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Erro ao carregar</title>
+  <title>Erro</title>
   <style>
     :root {
-      --bg1: #f4f1fb;
-      --bg2: #e9f4f1;
-      --fg: rgba(40, 35, 60, 0.9);
-      --fg-dim: rgba(40, 35, 60, 0.55);
-      --box: rgba(255, 255, 255, 0.75);
-      --border: rgba(120, 110, 150, 0.15);
+      --bg: #FBFAFD;
+      --fg: rgba(32, 28, 48, 0.95);
+      --fg-dim: rgba(32, 28, 48, 0.55);
+      --fg-faint: rgba(32, 28, 48, 0.38);
+      --ghost: rgba(30, 20, 60, 0.06);
+      --ghost-hover: rgba(30, 20, 60, 0.11);
+      --accent: #45D0C1;
+      --accent-ink: #0C332F;
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg1: #1d1b26;
-        --bg2: #1a2320;
-        --fg: rgba(240, 238, 250, 0.92);
-        --fg-dim: rgba(240, 238, 250, 0.55);
-        --box: rgba(255, 255, 255, 0.07);
-        --border: rgba(255, 255, 255, 0.09);
+        --bg: #1B1B22;
+        --fg: rgba(242, 240, 250, 0.95);
+        --fg-dim: rgba(242, 240, 250, 0.55);
+        --fg-faint: rgba(242, 240, 250, 0.34);
+        --ghost: rgba(255, 255, 255, 0.08);
+        --ghost-hover: rgba(255, 255, 255, 0.14);
       }
     }
 
@@ -29,89 +31,117 @@
     html, body {
       height: 100%;
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      user-select: none;
     }
 
     body {
-      background: linear-gradient(135deg, var(--bg1), var(--bg2));
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--fg);
+      padding: 32px;
     }
 
-    #card {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-      max-width: min(480px, 84vw);
+    main {
+      max-width: 420px;
       text-align: center;
-      padding: 40px;
-      border-radius: 18px;
-      background: var(--box);
-      border: 1px solid var(--border);
     }
 
-    #card svg {
-      color: var(--fg-dim);
+    #mark {
+      color: var(--fg-faint);
+      margin-bottom: 26px;
     }
 
     h1 {
-      font-size: 17px;
-      font-weight: 650;
+      font-size: 19px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 8px;
     }
 
-    #url {
-      font-size: 13px;
+    #hint {
+      font-size: 13.5px;
       color: var(--fg-dim);
-      word-break: break-all;
-      max-height: 40px;
+      line-height: 1.5;
+    }
+
+    #host {
+      display: inline-block;
+      margin-top: 20px;
+      max-width: 100%;
+      font-size: 12.5px;
+      color: var(--fg-dim);
+      background: var(--ghost);
+      border-radius: 8px;
+      padding: 5px 11px;
       overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: text;
     }
 
-    #detail {
-      font-size: 11.5px;
-      color: var(--fg-dim);
-      font-family: ui-monospace, monospace;
-    }
-
-    button {
-      margin-top: 8px;
+    #retry {
+      display: block;
+      margin: 26px auto 0 auto;
       border: none;
       border-radius: 10px;
-      padding: 9px 18px;
+      padding: 10px 22px;
       font-size: 13px;
       font-weight: 600;
       font-family: inherit;
-      background: rgba(16, 185, 129, 0.18);
-      color: inherit;
-      cursor: pointer;
+      background: var(--accent);
+      color: var(--accent-ink);
+      cursor: default;
     }
 
-    button:hover {
-      background: rgba(16, 185, 129, 0.3);
+    #retry:hover { filter: brightness(1.08); }
+
+    #retry:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    #detail {
+      margin-top: 22px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: var(--fg-faint);
+      user-select: text;
     }
   </style>
 </head>
 <body>
-  <div id="card">
-    <svg viewBox="0 0 52 56" width="40" height="43"><path d="M51.2982 24.08C51.2659 22.1371 49.8737 20.4906 47.9958 20.1284C45.8589 19.7003 42.7184 19.3052 39.1893 19.4698C40.0311 23.0262 40.2901 26.9119 39.5131 31.061C36.8905 44.7597 24.4902 52.6299 19.1156 55.4947C18.8566 55.6264 18.63 55.7252 18.3709 55.7911C24.4578 56.4168 33.7823 55.9887 41.3262 49.5016C50.4241 41.6314 51.3954 29.7438 51.2982 24.08Z" fill="currentColor"/><path d="M14.8095 28.1962H20.0546L17.5291 20.6882L14.8095 28.1962Z" fill="currentColor"/><path d="M26.3037 1.49077C25.1057 0.00894497 23.066 -0.419139 21.35 0.437029C15.9431 3.20311 3.41321 10.4805 0.564046 24.1134C-2.28512 37.7462 6.39189 49.2386 10.2447 53.9804C11.4427 55.4623 13.4824 55.8903 15.1984 55.0342C20.6053 52.2681 33.1352 44.5626 35.9844 30.9298C38.8011 17.3299 30.1565 6.26555 26.3037 1.49077ZM14.9394 14.9589C15.1984 14.2345 15.6841 13.8723 16.4935 13.8723H18.6303C19.5045 13.8723 19.8607 14.1357 20.0873 14.7943L20.3139 15.387C20.1844 15.387 20.0226 15.3541 19.8283 15.3541C17.7238 15.3541 15.6517 16.0786 14.0005 17.3957L14.9394 14.9589ZM27.5987 37.3181H23.4545C23.2279 37.3181 23.0012 37.1534 22.9365 36.9559L20.8967 31.4237H14.0328L12.0255 36.9559C11.9283 37.1864 11.7341 37.3181 11.5074 37.3181H7.46032C7.39557 37.3181 7.33082 37.3181 7.26606 37.2852C6.97467 37.1864 6.81279 36.8571 6.90992 36.5607L12.3169 22.3022C12.3816 22.1047 12.4787 21.94 12.5435 21.7754C12.5759 21.7095 12.6082 21.6766 12.6082 21.6107C12.673 21.479 12.7378 21.3802 12.7701 21.2485C14.7775 17.2969 18.2418 16.803 19.8607 16.803C20.1521 16.803 20.4435 16.8359 20.7348 16.8689L28.0844 36.5936C28.1168 36.6595 28.1168 36.7254 28.1168 36.7912C28.1492 37.0876 27.8901 37.3181 27.5987 37.3181Z" fill="currentColor"/></svg>
-    <h1 id="error-title">This page failed to load</h1>
-    <div id="url"></div>
+  <main>
+    <div id="mark">
+      <svg viewBox="0 0 52 56" width="34" height="37"><path d="M51.2982 24.08C51.2659 22.1371 49.8737 20.4906 47.9958 20.1284C45.8589 19.7003 42.7184 19.3052 39.1893 19.4698C40.0311 23.0262 40.2901 26.9119 39.5131 31.061C36.8905 44.7597 24.4902 52.6299 19.1156 55.4947C18.8566 55.6264 18.63 55.7252 18.3709 55.7911C24.4578 56.4168 33.7823 55.9887 41.3262 49.5016C50.4241 41.6314 51.3954 29.7438 51.2982 24.08Z" fill="currentColor"/><path d="M14.8095 28.1962H20.0546L17.5291 20.6882L14.8095 28.1962Z" fill="currentColor"/><path d="M26.3037 1.49077C25.1057 0.00894497 23.066 -0.419139 21.35 0.437029C15.9431 3.20311 3.41321 10.4805 0.564046 24.1134C-2.28512 37.7462 6.39189 49.2386 10.2447 53.9804C11.4427 55.4623 13.4824 55.8903 15.1984 55.0342C20.6053 52.2681 33.1352 44.5626 35.9844 30.9298C38.8011 17.3299 30.1565 6.26555 26.3037 1.49077ZM14.9394 14.9589C15.1984 14.2345 15.6841 13.8723 16.4935 13.8723H18.6303C19.5045 13.8723 19.8607 14.1357 20.0873 14.7943L20.3139 15.387C20.1844 15.387 20.0226 15.3541 19.8283 15.3541C17.7238 15.3541 15.6517 16.0786 14.0005 17.3957L14.9394 14.9589ZM27.5987 37.3181H23.4545C23.2279 37.3181 23.0012 37.1534 22.9365 36.9559L20.8967 31.4237H14.0328L12.0255 36.9559C11.9283 37.1864 11.7341 37.3181 11.5074 37.3181H7.46032C7.39557 37.3181 7.33082 37.3181 7.26606 37.2852C6.97467 37.1864 6.81279 36.8571 6.90992 36.5607L12.3169 22.3022C12.3816 22.1047 12.4787 21.94 12.5435 21.7754C12.5759 21.7095 12.6082 21.6766 12.6082 21.6107C12.673 21.479 12.7378 21.3802 12.7701 21.2485C14.7775 17.2969 18.2418 16.803 19.8607 16.803C20.1521 16.803 20.4435 16.8359 20.7348 16.8689L28.0844 36.5936C28.1168 36.6595 28.1168 36.7254 28.1168 36.7912C28.1492 37.0876 27.8901 37.3181 27.5987 37.3181Z" fill="currentColor"/></svg>
+    </div>
+    <h1 id="error-title"></h1>
+    <div id="hint"></div>
+    <div id="host"></div>
+    <button id="retry"></button>
     <div id="detail"></div>
-    <button id="retry">Try again</button>
-  </div>
+  </main>
   <script src="i18n.js"></script>
   <script>
-    document.getElementById('error-title').textContent = T('errorTitle')
-    document.getElementById('retry').textContent = T('retry')
     const params = new URLSearchParams(location.search)
     const url = params.get('u') || ''
-    document.getElementById('url').textContent = url
+    let host = url
+    try { host = new URL(url).host || url } catch {}
+
+    document.getElementById('error-title').textContent = T('errorTitle')
+    document.getElementById('hint').textContent = T('errorHint')
+    document.getElementById('host').textContent = host
     document.getElementById('detail').textContent = params.get('d') || ''
-    document.getElementById('retry').onclick = () => {
+
+    const retry = document.getElementById('retry')
+    retry.textContent = T('retry')
+    retry.onclick = () => {
       if (url) location.href = url
     }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && url) location.href = url
+    })
   </script>
 </body>
 </html>

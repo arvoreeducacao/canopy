@@ -116,7 +116,17 @@ const STRINGS = {
     stop: 'Stop',
     seedPersonal: 'Personal',
     seedWork: 'Work',
-    spaceFallback: 'Space'
+    spaceFallback: 'Space',
+    permWants: what => `wants to use your ${what}`,
+    permAllow: 'Allow',
+    permBlock: 'Block',
+    permCamera: 'camera',
+    permMic: 'microphone',
+    permCameraMic: 'camera and microphone',
+    'perm_display-capture': 'screen',
+    perm_geolocation: 'location',
+    perm_notifications: 'notifications',
+    'perm_clipboard-read': 'clipboard'
   },
   pt: {
     about: 'Sobre o Galho',
@@ -233,7 +243,17 @@ const STRINGS = {
     stop: 'Parar',
     seedPersonal: 'Pessoal',
     seedWork: 'Trabalho',
-    spaceFallback: 'Espaço'
+    spaceFallback: 'Espaço',
+    permWants: what => `quer usar ${what}`,
+    permAllow: 'Permitir',
+    permBlock: 'Bloquear',
+    permCamera: 'sua câmera',
+    permMic: 'seu microfone',
+    permCameraMic: 'sua câmera e microfone',
+    'perm_display-capture': 'sua tela',
+    perm_geolocation: 'sua localização',
+    perm_notifications: 'notificações',
+    'perm_clipboard-read': 'sua área de transferência'
   }
 }
 

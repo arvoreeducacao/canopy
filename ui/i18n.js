@@ -24,7 +24,11 @@ const GALHO_STRINGS = {
     findNext: 'Next',
     close: 'Close',
     errorTitle: 'This page failed to load',
-    retry: 'Try again'
+    retry: 'Try again',
+    permAllow: 'Allow',
+    permBlock: 'Block',
+    permRememberNote: 'Your choice is remembered for this site',
+    errorHint: 'Check the address or your connection.'
   },
   pt: {
     searchOrOpen: 'Buscar ou abrir URL...',
@@ -49,7 +53,11 @@ const GALHO_STRINGS = {
     findNext: 'Próximo',
     close: 'Fechar',
     errorTitle: 'Essa página não carregou',
-    retry: 'Tentar de novo'
+    retry: 'Tentar de novo',
+    permAllow: 'Permitir',
+    permBlock: 'Bloquear',
+    permRememberNote: 'Sua escolha fica salva para este site',
+    errorHint: 'Confira o endereço ou sua conexão.'
   }
 }
 

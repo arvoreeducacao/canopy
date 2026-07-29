@@ -6,9 +6,9 @@ if (location.protocol === 'file:' && location.pathname.endsWith('index.html')) {
   } catch {}
 }
 
-const SEND_CHANNELS = ['ui', 'palette:run', 'palette:hide', 'find:query', 'find:close']
+const SEND_CHANNELS = ['ui', 'palette:run', 'palette:hide', 'find:query', 'find:close', 'permission:answer']
 const INVOKE_CHANNELS = ['palette:query']
-const ON_CHANNELS = ['state', 'palette:open', 'space:edit', 'find:open', 'find:result']
+const ON_CHANNELS = ['state', 'palette:open', 'space:edit', 'find:open', 'find:result', 'permission:ask']
 
 contextBridge.exposeInMainWorld('galho', {
   send: (channel, data) => {

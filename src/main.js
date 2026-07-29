@@ -10,6 +10,8 @@ const PaletteController = require('./palette-controller')
 const FindController = require('./find-controller')
 const buildMenu = require('./menu')
 const { startAgentApi } = require('./agent-api')
+const permissions = require('./permissions')
+const PermissionView = require('./permission-view')
 
 const CDP_ENABLED = process.env.GALHO_CDP === '1' || !!process.env.GALHO_CDP_PORT
 const CDP_PORT = process.env.GALHO_CDP_PORT || '9223'
@@ -34,6 +36,7 @@ let sharedHistory = []
 let quitting = false
 let extensions = null
 let boosts = {}
+let sitePermissions = {}
 const downloads = []
 const pendingUrls = []
 
@@ -104,6 +107,7 @@ function serializeAll() {
     version: 2,
     history: sharedHistory.slice(0, 3000),
     boosts,
+    sitePermissions,
     windows: windows.map(e => e.tabs.serialize())
   }
 }
@@ -121,7 +125,8 @@ function entryFor(wc) {
     (e.palette && e.palette.view && e.palette.view.webContents === wc) ||
     (e.find && e.find.view && e.find.view.webContents === wc) ||
     (e.peekView && e.peekView.webContents === wc) ||
-    (e.dragView && e.dragView.webContents === wc)
+    (e.dragView && e.dragView.webContents === wc) ||
+    (e.permission && e.permission.view && e.permission.view.webContents === wc)
   )
 }
 
@@ -249,11 +254,13 @@ function createWindow(winState = {}) {
     openDownloads: () => shell.openPath(app.getPath('downloads'))
   })
   entry.find = new FindController(win, entry.tabs)
+  entry.permission = new PermissionView(win, entry.tabs)
 
   win.on('resize', () => {
     entry.tabs.layout()
     entry.palette.layout()
     entry.find.layout()
+    entry.permission.layout()
     pushState()
   })
 
@@ -265,6 +272,7 @@ function createWindow(winState = {}) {
   win.on('closed', () => {
     const idx = windows.indexOf(entry)
     if (idx >= 0) windows.splice(idx, 1)
+    if (entry.permission) entry.permission.destroy()
     entry.tabs.destroy()
     if (!quitting) saveAll(true)
   })
@@ -447,6 +455,11 @@ function wireIpc() {
     if (entry) entry.find.close()
   })
 
+  ipcMain.on('permission:answer', (e, msg) => {
+    const entry = entryFor(e.sender)
+    if (entry && entry.permission) entry.permission.answer(msg && msg.granted)
+  })
+
   ipcMain.on('agent:control', (e, msg) => {
     const found = findTabByWebContents(e.sender)
     if (!found || !msg) return
@@ -467,6 +480,7 @@ app.whenReady().then(() => {
   const data = migrate(store.data)
   sharedHistory = Array.isArray(data.history) ? data.history : []
   boosts = data.boosts && typeof data.boosts === 'object' ? data.boosts : {}
+  sitePermissions = data.sitePermissions && typeof data.sitePermissions === 'object' ? data.sitePermissions : {}
 
   session.defaultSession.on('will-download', (_e, item) => {
     let file = path.join(app.getPath('downloads'), item.getFilename())
@@ -500,9 +514,13 @@ app.whenReady().then(() => {
 
   session.defaultSession.setUserAgent(chromeUserAgent())
 
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    const allowed = ['media', 'notifications', 'clipboard-read', 'clipboard-sanitized-write', 'fullscreen', 'display-capture']
-    callback(allowed.includes(permission))
+  permissions.install(session.defaultSession, {
+    get: () => sitePermissions,
+    save: () => saveAll()
+  }, payload => {
+    const entry = focusedEntry()
+    if (!entry || !entry.permission) return Promise.resolve(false)
+    return entry.permission.ask(payload)
   })
 
   if (!process.env.GALHO_NO_EXT) extensions = new ElectronChromeExtensions({
