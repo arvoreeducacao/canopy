@@ -34,6 +34,7 @@ class TabManager {
     this.closedStack = []
     this.attachedViews = []
     this.split = null
+    this.splitRatio = 0.5
     this.emitTimer = null
 
     this.sidebarOpen = data.sidebarOpen !== false
@@ -350,12 +351,28 @@ class TabManager {
     }
     const b = this.contentBounds
     if (this.split && this.attachedViews.length === 2) {
-      const half = Math.floor((b.width - SPLIT_GAP) / 2)
-      this.attachedViews[0].setBounds({ x: b.x, y: b.y, width: half, height: b.height })
-      this.attachedViews[1].setBounds({ x: b.x + half + SPLIT_GAP, y: b.y, width: b.width - half - SPLIT_GAP, height: b.height })
+      const left = Math.floor((b.width - SPLIT_GAP) * this.splitRatio)
+      this.attachedViews[0].setBounds({ x: b.x, y: b.y, width: left, height: b.height })
+      this.attachedViews[1].setBounds({ x: b.x + left + SPLIT_GAP, y: b.y, width: b.width - left - SPLIT_GAP, height: b.height })
     } else if (this.attachedViews.length) {
       this.attachedViews[0].setBounds(b)
     }
+  }
+
+  setSplitRatio(ratio) {
+    if (!this.split) return
+    this.splitRatio = Math.min(0.8, Math.max(0.2, ratio))
+    this.layout()
+    this.emit()
+  }
+
+  swapSplit() {
+    if (!this.split) return
+    this.split = { mainId: this.split.sideId, sideId: this.split.mainId }
+    const space = this.activeSpace()
+    if (space && (space.activeTabId === this.split.sideId)) space.activeTabId = this.split.mainId
+    this.syncViews()
+    this.emit()
   }
 
   openSplit(mainId, sideId) {
@@ -363,6 +380,7 @@ class TabManager {
     const side = this.tabs.get(sideId)
     if (!main || !side || mainId === sideId) return
     if (side.spaceId !== main.spaceId) this.moveTabToSpace(sideId, main.spaceId)
+    this.splitRatio = 0.5
     this.split = { mainId, sideId }
     const space = this.spaceOf(main)
     this.activeSpaceId = space.id
@@ -888,7 +906,8 @@ class TabManager {
     return {
       sidebarOpen: this.sidebarOpen,
       activeSpaceId: this.activeSpaceId,
-      split: this.split,
+      split: this.split ? { ...this.split, ratio: this.splitRatio } : null,
+      contentBounds: this.contentBounds || null,
       spaces: this.spaces.map(s => ({
         id: s.id,
         name: s.name,

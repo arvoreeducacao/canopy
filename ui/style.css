@@ -1,23 +1,27 @@
 :root {
   --space-color: #8B5CF6;
-  --bg: #F4F2FA;
-  --fg: rgba(40, 35, 60, 0.95);
-  --fg-dim: rgba(40, 35, 60, 0.72);
-  --hover: rgba(30, 20, 60, 0.07);
-  --active-bg: #FFFFFF;
-  --chip-bg: rgba(30, 20, 60, 0.055);
-  --shadow: 0 1px 4px rgba(20, 10, 50, 0.10);
+  --glass-top: color-mix(in srgb, var(--space-color) 55%, transparent);
+  --glass-bottom: color-mix(in srgb, var(--space-color) 38%, transparent);
+  --bg-top: color-mix(in srgb, var(--space-color) 88%, #FFFFFF 12%);
+  --bg-bottom: color-mix(in srgb, var(--space-color) 74%, #000000 26%);
+  --fg: rgba(255, 255, 255, 0.97);
+  --fg-dim: rgba(255, 255, 255, 0.72);
+  --hover: rgba(255, 255, 255, 0.14);
+  --active-bg: rgba(255, 255, 255, 0.26);
+  --chip-bg: rgba(255, 255, 255, 0.13);
+  --shadow: 0 1px 5px rgba(10, 5, 30, 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1B1B22;
-    --fg: rgba(240, 238, 250, 0.92);
-    --fg-dim: rgba(240, 238, 250, 0.62);
-    --hover: rgba(255, 255, 255, 0.07);
-    --active-bg: rgba(255, 255, 255, 0.13);
-    --chip-bg: rgba(255, 255, 255, 0.06);
-    --shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    --glass-top: color-mix(in srgb, var(--space-color) 42%, transparent);
+    --glass-bottom: color-mix(in srgb, var(--space-color) 26%, transparent);
+    --bg-top: color-mix(in srgb, var(--space-color) 72%, #14121C 28%);
+    --bg-bottom: color-mix(in srgb, var(--space-color) 46%, #14121C 54%);
+    --hover: rgba(255, 255, 255, 0.11);
+    --active-bg: rgba(255, 255, 255, 0.2);
+    --chip-bg: rgba(255, 255, 255, 0.1);
+    --shadow: 0 1px 5px rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -41,20 +45,12 @@ input:focus-visible,
 
 html, body {
   height: 100%;
-  background: var(--bg);
+  background: linear-gradient(172deg, var(--glass-top), var(--glass-bottom));
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: 13px;
   color: var(--fg);
   overflow: hidden;
   color-scheme: light dark;
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, var(--space-color) 7%, transparent);
-  pointer-events: none;
   transition: background 0.4s ease;
 }
 
@@ -86,14 +82,14 @@ body.peek::before {
 }
 
 body.peek #sidebar {
-  left: 8px;
-  top: 8px;
-  bottom: 8px;
+  left: 6px;
+  top: 6px;
+  bottom: 6px;
   width: 304px;
-  border-radius: 16px;
+  border-radius: 13px;
   padding-top: 8px;
-  background: light-dark(rgba(244, 241, 251, 0.97), rgba(32, 30, 42, 0.97));
-  box-shadow: 0 18px 60px rgba(8, 4, 24, 0.45), 0 0 0 1px light-dark(rgba(120, 110, 150, 0.18), rgba(255, 255, 255, 0.08));
+  background: linear-gradient(172deg, var(--bg-top), var(--bg-bottom));
+  box-shadow: 0 16px 50px rgba(8, 4, 24, 0.5);
   animation: peek-in 170ms cubic-bezier(0.2, 0.7, 0.3, 1);
   transition: none;
 }
@@ -254,7 +250,7 @@ body.peek #empty-hint {
   width: 22px;
   height: 22px;
   border-radius: 5px;
-  background: color-mix(in srgb, var(--space-color) 55%, transparent);
+  background: rgba(255, 255, 255, 0.28);
   color: white;
   font-size: 12px;
   font-weight: 600;
@@ -322,7 +318,7 @@ body.peek #empty-hint {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--space-color) 50%, transparent);
+  background: rgba(255, 255, 255, 0.28);
   color: white;
   font-size: 9.5px;
   font-weight: 600;
@@ -413,8 +409,12 @@ body.peek #empty-hint {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--fg-dim);
+  background: rgba(255, 255, 255, 0.85);
   animation: agent-pulse 1.2s ease-in-out infinite;
+}
+
+.space-pill .space-icon {
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 #newtab-row {
@@ -590,6 +590,29 @@ body.peek #empty-hint {
 
 #topbar .spacer {
   flex: 1;
+}
+
+#split-divider {
+  position: fixed;
+  width: 8px;
+  display: none;
+  cursor: col-resize;
+  z-index: 4;
+  align-items: center;
+  justify-content: center;
+}
+
+#split-divider .grip {
+  width: 3px;
+  height: 34px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  transition: background 0.15s, height 0.15s;
+}
+
+#split-divider:hover .grip {
+  background: rgba(255, 255, 255, 0.7);
+  height: 52px;
 }
 
 #empty-hint {

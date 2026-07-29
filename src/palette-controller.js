@@ -66,7 +66,7 @@ class PaletteController {
       { id: 'pin-toggle', title: t('pinToggle'), hint: 'Cmd D' },
       { id: 'find', title: t('actFind'), hint: 'Cmd F' },
       { id: 'split', title: split ? t('actSplitSwap') : t('actSplit'), hint: 'Cmd Shift D' },
-      ...(split ? [{ id: 'close-split', title: t('actCloseSplit') }] : []),
+      ...(split ? [{ id: 'close-split', title: t('actCloseSplit') }, { id: 'swap-split', title: t('actSwapSplit') }] : []),
       { id: 'pip', title: t('pip'), hint: 'Cmd Shift P' },
       { id: 'clean', title: t('actClean'), hint: 'Cmd Shift K' },
       { id: 'archived', title: t('actArchived') },
@@ -96,7 +96,16 @@ class PaletteController {
       }
     })
     this.view.setBackgroundColor('#00000000')
+    this.loaded = false
     this.view.webContents.loadFile(path.join(__dirname, '..', 'ui', 'palette.html'))
+    this.view.webContents.once('did-finish-load', () => {
+      this.loaded = true
+      if (this.pendingOpen) {
+        this.view.webContents.send('palette:open', this.pendingOpen)
+        this.view.webContents.focus()
+        this.pendingOpen = null
+      }
+    })
     this.view.webContents.on('blur', () => {
       if (this.visible) this.close()
     })
@@ -118,12 +127,17 @@ class PaletteController {
       split: t('paletteSplit'),
       archived: t('paletteArchived')
     }
-    this.view.webContents.send('palette:open', {
+    const payload = {
       mode,
       placeholder: placeholders[mode] || placeholders.default,
       prefill: mode === 'url' && active ? active.url : '',
       color: space ? space.color : '#8B5CF6'
-    })
+    }
+    if (!this.loaded) {
+      this.pendingOpen = payload
+      return
+    }
+    this.view.webContents.send('palette:open', payload)
     this.view.webContents.focus()
   }
 
@@ -295,6 +309,9 @@ class PaletteController {
         return
       case 'close-split':
         tabs.closeSplit()
+        break
+      case 'swap-split':
+        tabs.swapSplit()
         break
       case 'pip':
         tabs.togglePip()

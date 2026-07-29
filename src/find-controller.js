@@ -23,7 +23,15 @@ class FindController {
       }
     })
     this.view.setBackgroundColor('#00000000')
+    this.loaded = false
     this.view.webContents.loadFile(path.join(__dirname, '..', 'ui', 'findbar.html'))
+    this.view.webContents.once('did-finish-load', () => {
+      this.loaded = true
+      if (this.visible) {
+        this.view.webContents.send('find:open', {})
+        this.view.webContents.focus()
+      }
+    })
   }
 
   bind(wc) {

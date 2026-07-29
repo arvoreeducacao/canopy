@@ -457,13 +457,27 @@ function render() {
   el('nav-forward').disabled = !state.active || !state.active.canGoForward
 
   const hint = el('empty-hint')
-  hint.style.display = state.active ? 'none' : 'flex'
+  hint.style.display = state.active || IS_PEEK ? 'none' : 'flex'
   hint.style.left = state.sidebarOpen ? '300px' : '8px'
 
   const actions = el('actions')
   if (actions) {
     if (state.active && state.active.wcId != null) actions.setAttribute('tab', state.active.wcId)
     else actions.removeAttribute('tab')
+  }
+
+  const divider = el('split-divider')
+  if (divider) {
+    if (state.split && state.contentBounds && !IS_PEEK) {
+      const b = state.contentBounds
+      const left = b.x + Math.floor((b.width - 8) * (state.split.ratio || 0.5))
+      divider.style.display = 'flex'
+      divider.style.left = left + 'px'
+      divider.style.top = b.y + 'px'
+      divider.style.height = b.height + 'px'
+    } else {
+      divider.style.display = 'none'
+    }
   }
 
   renderFavorites(space)
@@ -493,6 +507,10 @@ el('clean-btn').onclick = () => {
 el('urlchip').onclick = () => send('palette:open', { mode: 'url' })
 el('newtab-row').onclick = () => send('palette:open', { mode: 'default' })
 el('add-space').onclick = () => send('space:new')
+el('split-divider').onmousedown = e => {
+  e.preventDefault()
+  send('split:dragstart')
+}
 
 el('newtab-label').textContent = T('newTab')
 el('empty-hint-label').textContent = T('emptyHint')

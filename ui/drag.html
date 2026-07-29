@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Drag</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: transparent;
+      cursor: col-resize;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    let raf = null
+    document.addEventListener('mousemove', e => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        window.galho.send('ui', { type: 'split:drag', x: e.clientX })
+      })
+    })
+    const end = () => window.galho.send('ui', { type: 'split:dragend' })
+    document.addEventListener('mouseup', end)
+    document.addEventListener('mouseleave', end)
+    window.addEventListener('blur', end)
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') end()
+    })
+  </script>
+</body>
+</html>

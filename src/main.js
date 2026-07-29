@@ -120,8 +120,38 @@ function entryFor(wc) {
     e.win.webContents === wc ||
     (e.palette && e.palette.view && e.palette.view.webContents === wc) ||
     (e.find && e.find.view && e.find.view.webContents === wc) ||
-    (e.peekView && e.peekView.webContents === wc)
+    (e.peekView && e.peekView.webContents === wc) ||
+    (e.dragView && e.dragView.webContents === wc)
   )
+}
+
+function showDragOverlay(entry) {
+  if (!entry.tabs.split) return
+  if (!entry.dragView) {
+    const { WebContentsView } = require('electron')
+    entry.dragView = new WebContentsView({
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        transparent: true
+      }
+    })
+    entry.dragView.setBackgroundColor('#00000000')
+    entry.dragView.webContents.loadFile(path.join(__dirname, '..', 'ui', 'drag.html'))
+  }
+  const b = entry.tabs.contentBounds
+  if (!b) return
+  entry.dragView.setBounds(b)
+  entry.win.contentView.addChildView(entry.dragView)
+  entry.dragVisible = true
+  entry.dragView.webContents.focus()
+}
+
+function hideDragOverlay(entry) {
+  if (!entry.dragVisible) return
+  entry.win.contentView.removeChildView(entry.dragView)
+  entry.dragVisible = false
+  const active = entry.tabs.activeTab()
+  if (active && active.view) active.view.webContents.focus()
 }
 
 function ensurePeek(entry) {
@@ -165,24 +195,27 @@ function focusedEntry() {
 function createWindow(winState = {}) {
   const { nativeTheme } = require('electron')
   const themeBg = () => nativeTheme.shouldUseDarkColors ? '#1B1B22' : '#F4F2FA'
+  const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
     width: 1480,
     height: 940,
     minWidth: 900,
     minHeight: 560,
     show: false,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 18 },
-    backgroundColor: themeBg(),
+    ...(isMac ? { vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000' } : { backgroundColor: themeBg() }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js')
     }
   })
-  const themeListener = () => {
-    if (!win.isDestroyed()) win.setBackgroundColor(themeBg())
+  if (!isMac) {
+    const themeListener = () => {
+      if (!win.isDestroyed()) win.setBackgroundColor(themeBg())
+    }
+    nativeTheme.on('updated', themeListener)
+    win.on('closed', () => nativeTheme.removeListener('updated', themeListener))
   }
-  nativeTheme.on('updated', themeListener)
-  win.on('closed', () => nativeTheme.removeListener('updated', themeListener))
 
   win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'))
   win.once('ready-to-show', () => {
@@ -377,6 +410,10 @@ function wireIpc() {
       case 'nav:reload': tabs.reload(); break
       case 'palette:open': entry.palette.open(msg.mode || 'default'); break
       case 'peek:show': showPeek(entry); break
+      case 'split:dragstart': showDragOverlay(entry); break
+      case 'split:drag': tabs.setSplitRatio((msg.x || 0) / Math.max(1, (tabs.contentBounds ? tabs.contentBounds.width : 1) - 8)); break
+      case 'split:dragend': hideDragOverlay(entry); break
+      case 'split:swap': tabs.swapSplit(); break
       case 'peek:hide': hidePeek(entry); break
       case 'state:request': entry.pushState(); break
     }
