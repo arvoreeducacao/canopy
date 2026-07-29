@@ -1,5 +1,6 @@
 const { WebContentsView, Menu, clipboard } = require('electron')
 const crypto = require('crypto')
+const path = require('path')
 
 const SPACE_COLORS = ['#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#14B8A6', '#6366F1']
 const SPACE_ICONS = ['leaf', 'home', 'briefcase', 'robot', 'book', 'bolt', 'star', 'heart', 'code', 'rocket', 'music', 'chat']
@@ -21,10 +22,11 @@ function hostOf(url) {
 }
 
 class TabManager {
-  constructor(win, data, sharedHistory, onChange, hooks) {
+  constructor(win, data, sharedHistory, onChange, hooks, boosts) {
     this.win = win
     this.onChange = onChange
     this.hooks = hooks || {}
+    this.boosts = boosts || {}
     this.history = sharedHistory
     this.tabs = new Map()
     this.spaces = []
@@ -41,6 +43,7 @@ class TabManager {
         name: s.name || 'Espaco',
         color: s.color || SPACE_COLORS[0],
         icon: s.icon || null,
+        archiveAfterMs: typeof s.archiveAfterMs === 'number' ? s.archiveAfterMs : null,
         folders: (s.folders || []).map(f => ({
           id: f.id || shortId(),
           name: f.name || 'Pasta',
@@ -60,6 +63,8 @@ class TabManager {
           title: t.title,
           favicon: t.favicon,
           pinned: t.pinned,
+          pinnedUrl: t.pinnedUrl,
+          customTitle: t.customTitle,
           folderId: t.folderId,
           spaceId: space.id
         })
@@ -84,18 +89,22 @@ class TabManager {
     )
   }
 
-  makeRecord({ id, url, title, favicon, pinned, folderId, spaceId }) {
+  makeRecord({ id, url, title, favicon, pinned, pinnedUrl, customTitle, folderId, spaceId }) {
     const tab = {
       id: id || shortId(),
       url,
       title: title || hostOf(url) || url,
+      customTitle: customTitle || null,
       favicon: favicon || null,
       pinned: !!pinned,
+      pinnedUrl: pinnedUrl || null,
       folderId: folderId || null,
       spaceId,
       loading: false,
       lastActiveAt: Date.now(),
       agentUntil: 0,
+      agentLabel: null,
+      agentTakenOver: false,
       view: null
     }
     this.tabs.set(tab.id, tab)
@@ -120,7 +129,8 @@ class TabManager {
     const view = new WebContentsView({
       webPreferences: {
         sandbox: true,
-        contextIsolation: true
+        contextIsolation: true,
+        preload: path.join(__dirname, 'tab-preload.js')
       }
     })
     view.setBackgroundColor('#FFFFFFFF')
@@ -170,6 +180,14 @@ class TabManager {
       if (isMainFrame) {
         tab.url = url
         this.emit()
+      }
+    })
+
+    wc.on('did-finish-load', () => {
+      const boost = this.boosts[hostOf(tab.url)]
+      if (boost) {
+        if (boost.css) wc.insertCSS(boost.css).catch(() => {})
+        if (boost.js) wc.executeJavaScript(boost.js, true).catch(() => {})
       }
     })
 
@@ -412,15 +430,17 @@ class TabManager {
     }
   }
 
-  autoArchive(maxAgeMs = ARCHIVE_AFTER_MS) {
+  autoArchive() {
     const now = Date.now()
     for (const space of this.spaces) {
       if (space.name === 'Agentes') continue
+      if (space.archiveAfterMs === 0) continue
+      const maxAge = space.archiveAfterMs || ARCHIVE_AFTER_MS
       for (const id of [...space.tabIds]) {
         const tab = this.tabs.get(id)
         if (!tab || tab.pinned) continue
         if (space.activeTabId === id && space.id === this.activeSpaceId) continue
-        if (now - tab.lastActiveAt > maxAgeMs) this.archiveTab(id)
+        if (now - tab.lastActiveAt > maxAge) this.archiveTab(id)
       }
     }
   }
@@ -449,8 +469,39 @@ class TabManager {
     const tab = this.tabs.get(id || (this.activeTab() || {}).id)
     if (!tab) return
     tab.pinned = !tab.pinned
-    if (tab.pinned) tab.folderId = null
+    if (tab.pinned) {
+      tab.folderId = null
+      tab.pinnedUrl = tab.url
+    } else {
+      tab.pinnedUrl = null
+    }
     this.emit()
+  }
+
+  favClick(id) {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    const isActive = this.activeTab() === tab
+    if (isActive && tab.pinnedUrl && tab.url !== tab.pinnedUrl) {
+      this.navigate(id, tab.pinnedUrl)
+      return
+    }
+    this.activateTab(id)
+  }
+
+  renameTab(id, name) {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    tab.customTitle = name && name.trim() ? name.trim() : null
+    this.emit()
+  }
+
+  setSpaceArchiveAfter(id, ms) {
+    const space = this.spaces.find(s => s.id === id)
+    if (space) {
+      space.archiveAfterMs = ms
+      this.emit()
+    }
   }
 
   togglePip() {
@@ -662,10 +713,11 @@ class TabManager {
     this.emit()
   }
 
-  agentPulse(id) {
+  agentPulse(id, label) {
     const tab = this.tabs.get(id)
     if (!tab) return
     tab.agentUntil = Date.now() + 4000
+    if (label) tab.agentLabel = label
     this.emit()
   }
 
@@ -742,12 +794,13 @@ class TabManager {
         name: s.name,
         color: s.color,
         icon: s.icon,
+        archiveAfterMs: s.archiveAfterMs,
         folders: s.folders,
         archived: s.archived,
         activeTabId: s.activeTabId,
         tabs: s.tabIds.map(id => {
           const t = this.tabs.get(id)
-          return t ? { id: t.id, url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, folderId: t.folderId } : null
+          return t ? { id: t.id, url: t.url, title: t.title, customTitle: t.customTitle, favicon: t.favicon, pinned: t.pinned, pinnedUrl: t.pinnedUrl, folderId: t.folderId } : null
         }).filter(Boolean)
       }))
     }
@@ -758,7 +811,7 @@ class TabManager {
     const now = Date.now()
     const tabInfo = t => ({
       id: t.id,
-      title: t.title,
+      title: t.customTitle || t.title,
       url: t.url,
       host: hostOf(t.url),
       favicon: t.favicon,

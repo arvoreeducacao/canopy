@@ -19,6 +19,17 @@ function searchUrl(q) {
   return 'https://www.google.com/search?q=' + encodeURIComponent(q)
 }
 
+const SITE_ENGINES = {
+  g: { name: 'Google', url: 'https://www.google.com/search?q=%s' },
+  yt: { name: 'YouTube', url: 'https://www.youtube.com/results?search_query=%s' },
+  gh: { name: 'GitHub', url: 'https://github.com/search?q=%s' },
+  npm: { name: 'npm', url: 'https://www.npmjs.com/search?q=%s' },
+  wiki: { name: 'Wikipedia', url: 'https://pt.wikipedia.org/wiki/Special:Search?search=%s' },
+  mdn: { name: 'MDN', url: 'https://developer.mozilla.org/pt-BR/search?q=%s' },
+  maps: { name: 'Google Maps', url: 'https://www.google.com/maps/search/%s' },
+  gpt: { name: 'ChatGPT', url: 'https://chatgpt.com/?q=%s' }
+}
+
 function score(query, text) {
   if (!text) return 0
   const q = query.toLowerCase()
@@ -67,6 +78,8 @@ class PaletteController {
       { id: 'copy-url', title: 'Copiar URL da aba', hint: 'Cmd Shift C' },
       { id: 'screenshot', title: 'Capturar tela da aba' },
       { id: 'webstore', title: 'Instalar extensoes (Chrome Web Store)' },
+      { id: 'downloads', title: 'Abrir pasta de downloads' },
+      { id: 'default-browser', title: 'Tornar navegador padrao' },
       { id: 'devtools', title: 'Abrir DevTools', hint: 'Cmd Alt I' },
       { id: 'reload', title: 'Recarregar pagina', hint: 'Cmd R' },
       { id: 'clear-history', title: 'Limpar historico' }
@@ -173,10 +186,15 @@ class PaletteController {
     }
 
     if (q) {
+      const engineMatch = q.match(/^(\S+)\s+(.+)$/)
+      const engine = engineMatch && SITE_ENGINES[engineMatch[1].toLowerCase()]
+      if (engine) {
+        items.push({ type: 'search', title: `Buscar "${engineMatch[2]}" no ${engine.name}`, url: engine.url.replace('%s', encodeURIComponent(engineMatch[2])), kind: 'search' })
+      }
       if (isUrlish(q)) {
         items.push({ type: 'nav', title: q, subtitle: 'Abrir', url: normalizeUrl(q), kind: 'globe' })
         items.push({ type: 'search', title: `Buscar "${q}" no Google`, url: searchUrl(q), kind: 'search' })
-      } else {
+      } else if (!engine) {
         items.push({ type: 'search', title: `Buscar "${q}" no Google`, url: searchUrl(q), kind: 'search' })
       }
 
@@ -307,6 +325,12 @@ class PaletteController {
         break
       case 'webstore':
         tabs.createTab({ url: 'https://chromewebstore.google.com/', activate: true })
+        break
+      case 'downloads':
+        if (this.ctx && this.ctx.openDownloads) this.ctx.openDownloads()
+        break
+      case 'default-browser':
+        if (this.ctx && this.ctx.setDefaultBrowser) this.ctx.setDefaultBrowser()
         break
       case 'devtools':
         if (active && active.view) active.view.webContents.openDevTools({ mode: 'detach' })

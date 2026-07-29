@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Menu, clipboard } = require('electron')
+const { app, BrowserWindow, ipcMain, session, Menu, clipboard, shell, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { ElectronChromeExtensions } = require('electron-chrome-extensions')
@@ -29,6 +29,22 @@ let store = null
 let sharedHistory = []
 let quitting = false
 let extensions = null
+let boosts = {}
+const downloads = []
+const pendingUrls = []
+
+function openExternalUrl(url) {
+  if (!/^https?:\/\//i.test(url)) return
+  const entry = focusedEntry()
+  if (!entry) {
+    pendingUrls.push(url)
+    return
+  }
+  entry.tabs.createTab({ url, activate: true })
+  if (entry.win.isMinimized()) entry.win.restore()
+  entry.win.show()
+  entry.win.focus()
+}
 
 function findTabByWebContents(wc) {
   for (const entry of windows) {
@@ -74,6 +90,7 @@ function serializeAll() {
   return {
     version: 2,
     history: sharedHistory.slice(0, 3000),
+    boosts,
     windows: windows.map(e => e.tabs.serialize())
   }
 }
@@ -129,10 +146,15 @@ function createWindow(winState = {}) {
   }
   entry.pushState = pushState
 
-  entry.tabs = new TabManager(win, winState, sharedHistory, pushState, extensionHooks)
+  entry.tabs = new TabManager(win, winState, sharedHistory, pushState, extensionHooks, boosts)
   entry.palette = new PaletteController(win, entry.tabs, {
     find: () => entry.find,
-    newWindow: () => createWindow()
+    newWindow: () => createWindow(),
+    setDefaultBrowser: () => {
+      app.setAsDefaultProtocolClient('http')
+      app.setAsDefaultProtocolClient('https')
+    },
+    openDownloads: () => shell.openPath(app.getPath('downloads'))
   })
   entry.find = new FindController(win, entry.tabs)
 
@@ -169,6 +191,7 @@ function showTabContextMenu(entry, id) {
   const active = tabs.activeTab()
   const template = [
     { label: tab.pinned ? 'Desafixar' : 'Fixar como favorito', click: () => tabs.togglePin(id) },
+    { label: 'Renomear aba', click: () => entry.win.webContents.send('space:edit', { tabId: id }) },
     ...(active && active.id !== id ? [{ label: 'Abrir em split view', click: () => tabs.openSplit(active.id, id) }] : []),
     { label: 'Duplicar aba', click: () => tabs.duplicateTab(id) },
     { label: 'Copiar URL', click: () => clipboard.writeText(tab.url) },
@@ -221,6 +244,15 @@ function showSpaceContextMenu(entry, id) {
         click: () => tabs.setSpaceColor(id, c)
       }))
     },
+    {
+      label: 'Auto-archive',
+      submenu: [
+        { label: '12 horas', type: 'radio', checked: !space.archiveAfterMs, click: () => tabs.setSpaceArchiveAfter(id, null) },
+        { label: '24 horas', type: 'radio', checked: space.archiveAfterMs === 86400000, click: () => tabs.setSpaceArchiveAfter(id, 86400000) },
+        { label: '7 dias', type: 'radio', checked: space.archiveAfterMs === 604800000, click: () => tabs.setSpaceArchiveAfter(id, 604800000) },
+        { label: 'Nunca', type: 'radio', checked: space.archiveAfterMs === 0, click: () => tabs.setSpaceArchiveAfter(id, 0) }
+      ]
+    },
     { type: 'separator' },
     { label: 'Limpar abas', click: () => tabs.archiveAllUnpinned(id) },
     { label: 'Excluir espaco', enabled: tabs.spaces.length > 1, click: () => tabs.deleteSpace(id) }
@@ -249,6 +281,8 @@ function wireIpc() {
     const tabs = entry.tabs
     switch (msg.type) {
       case 'tab:activate': tabs.activateTab(msg.id); break
+      case 'fav:click': tabs.favClick(msg.id); break
+      case 'tab:rename': tabs.renameTab(msg.id, msg.name); break
       case 'tab:close': tabs.closeTab(msg.id); break
       case 'tab:archive': tabs.archiveTab(msg.id); break
       case 'tab:reorder': tabs.reorderTab(msg.id, msg.index, msg.folderId || null); break
@@ -297,12 +331,49 @@ function wireIpc() {
     const entry = entryFor(e.sender)
     if (entry) entry.find.close()
   })
+
+  ipcMain.on('agent:control', (e, msg) => {
+    const found = findTabByWebContents(e.sender)
+    if (!found || !msg) return
+    if (msg.action === 'takeover') {
+      found.tab.agentTakenOver = true
+      found.tab.agentUntil = 0
+    } else if (msg.action === 'stop') {
+      found.tab.agentStopRequested = true
+      found.tab.agentUntil = 0
+    }
+    found.entry.tabs.emit()
+  })
 }
 
 app.whenReady().then(() => {
   store = new Store(path.join(app.getPath('userData'), 'state.json'))
   const data = migrate(store.data)
   sharedHistory = Array.isArray(data.history) ? data.history : []
+  boosts = data.boosts && typeof data.boosts === 'object' ? data.boosts : {}
+
+  session.defaultSession.on('will-download', (_e, item) => {
+    let file = path.join(app.getPath('downloads'), item.getFilename())
+    let n = 1
+    while (fs.existsSync(file)) {
+      const ext = path.extname(item.getFilename())
+      const base = path.basename(item.getFilename(), ext)
+      file = path.join(app.getPath('downloads'), `${base} (${n++})${ext}`)
+    }
+    item.setSavePath(file)
+    const record = { filename: path.basename(file), path: file, url: item.getURL(), state: 'progressing', startedAt: Date.now() }
+    downloads.unshift(record)
+    if (downloads.length > 100) downloads.length = 100
+    item.on('done', (_ev, state) => {
+      record.state = state
+      record.bytes = item.getReceivedBytes()
+      if (state === 'completed' && Notification.isSupported()) {
+        const n = new Notification({ title: 'Download concluido', body: record.filename })
+        n.on('click', () => shell.showItemInFolder(file))
+        n.show()
+      }
+    })
+  })
 
   if (process.platform === 'darwin' && app.dock) {
     const iconPath = path.join(__dirname, '..', 'build', 'icon.png')
@@ -355,6 +426,7 @@ app.whenReady().then(() => {
         createWindow(winState)
       }
       if (!windows.length) createWindow()
+      while (pendingUrls.length) openExternalUrl(pendingUrls.shift())
     })
 
   buildMenu({
@@ -364,6 +436,10 @@ app.whenReady().then(() => {
 
   startAgentApi({
     tabs: () => windows[0] && windows[0].tabs,
+    managers: () => windows.map(e => e.tabs),
+    downloads: () => downloads,
+    boosts: () => boosts,
+    saveBoosts: () => saveAll(),
     port: API_PORT,
     cdpPort: CDP_PORT
   })
@@ -373,7 +449,17 @@ app.whenReady().then(() => {
   }, 10 * 60 * 1000)
 })
 
-app.on('second-instance', () => {
+app.on('open-url', (e, url) => {
+  e.preventDefault()
+  openExternalUrl(url)
+})
+
+app.on('second-instance', (_e, argv) => {
+  const url = (argv || []).find(a => /^https?:\/\//i.test(a))
+  if (url) {
+    openExternalUrl(url)
+    return
+  }
   const entry = windows[0]
   if (entry) {
     if (entry.win.isMinimized()) entry.win.restore()

@@ -76,7 +76,16 @@
         "deb"
       ],
       "category": "Network"
-    }
+    },
+    "protocols": [
+      {
+        "name": "Web URL",
+        "schemes": [
+          "http",
+          "https"
+        ]
+      }
+    ]
   },
   "dependencies": {
     "electron-chrome-extensions": "^4.9.0",

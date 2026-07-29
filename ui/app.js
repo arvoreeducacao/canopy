@@ -2,6 +2,7 @@ let state = null
 let dragTabId = null
 let editingSpaceId = null
 let editingFolderId = null
+let editingTabId = null
 
 const el = id => document.getElementById(id)
 
@@ -96,7 +97,7 @@ function renderFavorites(space) {
     } else {
       tile.appendChild(letterEl(tab))
     }
-    tile.onclick = () => send('tab:activate', { id: tab.id })
+    tile.onclick = () => send('fav:click', { id: tab.id })
     tile.oncontextmenu = e => {
       e.preventDefault()
       send('tab:context', { id: tab.id })
@@ -113,10 +114,39 @@ function tabRow(tab, index, folderId) {
 
   item.appendChild(faviconEl(tab))
 
-  const title = document.createElement('div')
-  title.className = 'title'
-  title.textContent = tab.title || tab.host || tab.url
-  item.appendChild(title)
+  if (editingTabId === tab.id) {
+    const input = document.createElement('input')
+    input.className = 'rename-input'
+    input.style.flex = '1'
+    input.value = tab.title || ''
+    input.onclick = e => e.stopPropagation()
+    input.onblur = () => {
+      editingTabId = null
+      send('tab:rename', { id: tab.id, name: input.value })
+    }
+    input.onkeydown = e => {
+      if (e.key === 'Enter') input.blur()
+      if (e.key === 'Escape') {
+        editingTabId = null
+        render()
+      }
+    }
+    item.appendChild(input)
+    setTimeout(() => {
+      input.focus()
+      input.select()
+    }, 0)
+  } else {
+    const title = document.createElement('div')
+    title.className = 'title'
+    title.textContent = tab.title || tab.host || tab.url
+    title.ondblclick = e => {
+      e.stopPropagation()
+      editingTabId = tab.id
+      render()
+    }
+    item.appendChild(title)
+  }
 
   if (tab.agentActive) {
     const badge = document.createElement('div')
@@ -399,6 +429,7 @@ window.galho.on('state', s => {
 
 window.galho.on('space:edit', data => {
   if (data.folderId) editingFolderId = data.folderId
+  else if (data.tabId) editingTabId = data.tabId
   else editingSpaceId = data.id
   render()
 })
