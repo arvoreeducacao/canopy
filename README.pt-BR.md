@@ -43,6 +43,7 @@ Use `GALHO_PROFILE=/caminho/do/perfil` para rodar uma instancia isolada (util pa
 - **Split view**: `Cmd+Shift+D` (ou clique direito na aba > Abrir em split view). Duas abas lado a lado.
 - **Arquivo, nao fechar**: `Cmd+W` arquiva (recuperavel no palette > "Ver abas arquivadas"). Abas paradas ha 12h+ sao arquivadas sozinhas (estilo Arc). Botao de vassoura ou `Cmd+Shift+K` limpa o space inteiro (menos favoritos).
 - **Command palette** (`Cmd+T`): busca fuzzy em abas abertas, historico (frecency), arquivadas, acoes do browser, URL direta ou busca no Google. `Cmd+L` abre em modo "abrir aqui".
+- **Extensoes Chrome**: instale direto da Chrome Web Store (acao "Instalar extensoes" no palette, ou `POST /extensions` com o id da store). Browser actions das extensoes aparecem na sidebar e itens de extensao no menu de contexto da pagina. Via `electron-chrome-extensions`.
 
 ## Atalhos
 
@@ -103,6 +104,8 @@ curl http://127.0.0.1:9224/tabs/ID/screenshot -o shot.png
 curl -X POST http://127.0.0.1:9224/tabs/ID/click -d '{"x":500,"y":300}'
 curl -X POST http://127.0.0.1:9224/tabs/ID/type -d '{"text":"ola"}'
 curl -X POST http://127.0.0.1:9224/folders -d '{"space":"Trabalho","name":"PRs","links":[{"title":"...","url":"..."}]}'
+curl http://127.0.0.1:9224/extensions
+curl -X POST http://127.0.0.1:9224/extensions -d '{"id":"eimadpbcbfnmbkopoojfekhnkhdbieeh"}'
 ```
 
 Playwright / CDP direto:
@@ -148,11 +151,10 @@ Cada janela tem seu TabManager; so a aba ativa (ou o par do split) fica attachad
 
 - UI de downloads
 - Prompts de permissao por site (hoje: allowlist fixa - media/notificacoes sim, geolocalizacao nao)
-- Suporte a extensoes Chrome (Electron suporta um subconjunto via `session.loadExtension`)
 - Auto-update (electron-updater)
 - Assinatura/notarizacao macOS
 - Restaurar sessao apos crash de renderer (hoje: recarregar a aba)
 
 ## Licenca
 
-[MIT](LICENSE)
+O codigo do Galho e [MIT](LICENSE). O app depende de [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell), que e GPL-3.0 — distribuicoes binarias que a incluem ficam sujeitas aos termos da GPL-3.0.

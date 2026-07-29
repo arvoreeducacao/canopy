@@ -43,6 +43,7 @@ Set `GALHO_PROFILE=/path/to/profile` to run an isolated instance (useful for tes
 - **Split view**: `Cmd+Shift+D` (or right-click a tab > Open in split view). Two tabs side by side.
 - **Archive, not close**: `Cmd+W` archives (recoverable from the palette > "Ver abas arquivadas"). Tabs idle for 12h+ are archived automatically (Arc style). The broom button or `Cmd+Shift+K` cleans the whole space (except favorites).
 - **Command palette** (`Cmd+T`): fuzzy search across open tabs, history (frecency), archived tabs, browser actions, direct URLs, or Google search. `Cmd+L` opens it in "open here" mode.
+- **Chrome extensions**: install straight from the Chrome Web Store (palette action "Instalar extensoes", or `POST /extensions` with the store id). Extension browser actions show up in the sidebar and extension items in the page context menu. Powered by `electron-chrome-extensions`.
 
 ## Shortcuts
 
@@ -103,6 +104,8 @@ curl http://127.0.0.1:9224/tabs/ID/screenshot -o shot.png
 curl -X POST http://127.0.0.1:9224/tabs/ID/click -d '{"x":500,"y":300}'
 curl -X POST http://127.0.0.1:9224/tabs/ID/type -d '{"text":"hello"}'
 curl -X POST http://127.0.0.1:9224/folders -d '{"space":"Work","name":"PRs","links":[{"title":"...","url":"..."}]}'
+curl http://127.0.0.1:9224/extensions
+curl -X POST http://127.0.0.1:9224/extensions -d '{"id":"eimadpbcbfnmbkopoojfekhnkhdbieeh"}'
 ```
 
 Playwright / raw CDP:
@@ -148,11 +151,10 @@ Each window has its own TabManager; only the active tab (or the split pair) stay
 
 - Downloads UI
 - Per-site permission prompts (today: fixed allowlist - media/notifications yes, geolocation no)
-- Chrome extension support (Electron supports a subset via `session.loadExtension`)
 - Auto-update (electron-updater)
 - macOS signing/notarization
 - Session restore after a renderer crash (today: reload the tab)
 
 ## License
 
-[MIT](LICENSE)
+Galho's own source code is [MIT](LICENSE). The app depends on [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell), which is licensed under GPL-3.0 — binary distributions that bundle it are governed by GPL-3.0 terms.
