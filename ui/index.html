@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Galho</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="sidebar">
+    <div id="titlebar"></div>
+    <div id="topbar">
+      <button id="nav-back" class="nav-btn" title="Voltar">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10.5 3L5.5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="nav-forward" class="nav-btn" title="Avancar">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M5.5 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="nav-reload" class="nav-btn" title="Recarregar">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div id="urlchip" title="Abrir URL (Cmd+L)">
+      <svg id="lock-icon" viewBox="0 0 16 16" width="11" height="11"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span id="urlchip-text">Buscar ou abrir URL...</span>
+    </div>
+    <div id="favorites"></div>
+    <div id="tabs-scroll">
+      <div id="tabs"></div>
+      <div id="newtab-row">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Nova aba</span>
+        <span class="kbd">&#8984;T</span>
+      </div>
+    </div>
+    <div id="footer">
+      <div id="spaces"></div>
+      <button id="add-space" title="Novo espaco">
+        <svg viewBox="0 0 16 16" width="13" height="13"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
