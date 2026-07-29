@@ -17,6 +17,7 @@
     "galho": "bin/galho.js"
   },
   "scripts": {
+    "postinstall": "node src/skill-install.js",
     "start": "electron .",
     "dist": "electron-builder --mac",
     "dist:win": "electron-builder --win",
@@ -38,6 +39,7 @@
     "files": [
       "src/**/*",
       "ui/**/*",
+      "skill/**/*",
       "build/icon.png"
     ],
     "directories": {

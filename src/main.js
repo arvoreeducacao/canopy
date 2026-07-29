@@ -462,6 +462,7 @@ function wireIpc() {
 }
 
 app.whenReady().then(() => {
+  try { require('./skill-install').installSkill() } catch {}
   store = new Store(path.join(app.getPath('userData'), 'state.json'))
   const data = migrate(store.data)
   sharedHistory = Array.isArray(data.history) ? data.history : []
