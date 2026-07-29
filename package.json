@@ -4,7 +4,10 @@
   "version": "0.2.0",
   "description": "Arc-inspired, agent-native browser built on Electron",
   "license": "MIT",
-  "author": "Joao Barros",
+  "author": {
+    "name": "Joao Barros",
+    "email": "augustoj311@gmail.com"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/arvoreeducacao/galho-browser.git"
