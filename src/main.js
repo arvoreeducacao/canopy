@@ -11,6 +11,7 @@ const FindController = require('./find-controller')
 const buildMenu = require('./menu')
 const { startAgentApi } = require('./agent-api')
 
+const CDP_ENABLED = process.env.GALHO_CDP === '1' || !!process.env.GALHO_CDP_PORT
 const CDP_PORT = process.env.GALHO_CDP_PORT || '9223'
 const API_PORT = Number(process.env.GALHO_API_PORT || '9224')
 
@@ -18,8 +19,10 @@ app.setName('Galho')
 if (process.env.GALHO_PROFILE) {
   app.setPath('userData', process.env.GALHO_PROFILE)
 }
-app.commandLine.appendSwitch('remote-debugging-port', CDP_PORT)
-app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+if (CDP_ENABLED) {
+  app.commandLine.appendSwitch('remote-debugging-port', CDP_PORT)
+  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -517,7 +520,8 @@ app.whenReady().then(() => {
     boosts: () => boosts,
     saveBoosts: () => saveAll(),
     port: API_PORT,
-    cdpPort: CDP_PORT
+    cdpPort: CDP_PORT,
+    cdpEnabled: CDP_ENABLED
   })
 
   setInterval(() => {

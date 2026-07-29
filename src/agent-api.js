@@ -1,5 +1,8 @@
 const http = require('http')
-const { session } = require('electron')
+const fs = require('fs')
+const path = require('path')
+const crypto = require('crypto')
+const { app, session } = require('electron')
 const { t } = require('./i18n')
 
 const AGENT_SPACE = 'Agentes'
@@ -216,8 +219,32 @@ function ensureAgentSpace(tabs, spaceName) {
   return space
 }
 
+function loadOrCreateToken(dir) {
+  const file = path.join(dir, 'agent-token')
+  try {
+    const existing = fs.readFileSync(file, 'utf8').trim()
+    if (existing) return existing
+  } catch {}
+  const token = crypto.randomBytes(32).toString('hex')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(file, token + '\n', { mode: 0o600 })
+  fs.chmodSync(file, 0o600)
+  return token
+}
+
+function bearerMatches(header, token) {
+  if (!header || !header.startsWith('Bearer ')) return false
+  const provided = Buffer.from(header.slice(7))
+  const expected = Buffer.from(token)
+  return provided.length === expected.length && crypto.timingSafeEqual(provided, expected)
+}
+
 function startAgentApi(ctx) {
-  const server = http.createServer(async (req, res) => {
+  const userData = app.getPath('userData')
+  const token = loadOrCreateToken(userData)
+  const socketPath = path.join(userData, 'agent.sock')
+
+  const handler = async (req, res) => {
     const tabs = ctx.tabs()
     if (!tabs) return json(res, 503, { error: 'window not ready' })
     const managers = ctx.managers ? ctx.managers() : [tabs]
@@ -236,7 +263,13 @@ function startAgentApi(ctx) {
         return json(res, 200, {
           name: 'galho',
           version: '0.2.0',
-          cdp: { port: Number(ctx.cdpPort), list: `http://127.0.0.1:${ctx.cdpPort}/json` },
+          transports: {
+            socket: process.platform !== 'win32' ? socketPath : null,
+            tcp: `http://127.0.0.1:${ctx.port} (requires Authorization: Bearer token from ${path.join(userData, 'agent-token')})`
+          },
+          cdp: ctx.cdpEnabled
+            ? { enabled: true, port: Number(ctx.cdpPort), list: `http://127.0.0.1:${ctx.cdpPort}/json` }
+            : { enabled: false, hint: 'set GALHO_CDP=1 to enable' },
           endpoints: [
             'GET /tabs',
             'POST /tabs {url, space?, activate?}',
@@ -386,7 +419,7 @@ function startAgentApi(ctx) {
                   active: space.activeTabId === tab.id && space.id === m.activeSpaceId,
                   loading: tab.loading
                 }
-                if (tab.view) {
+                if (ctx.cdpEnabled && tab.view) {
                   const targetId = await targetIdOf(tab.view.webContents)
                   if (targetId) {
                     entry.targetId = targetId
@@ -405,14 +438,13 @@ function startAgentApi(ctx) {
           const space = ensureAgentSpace(tabs, body.space || AGENT_SPACE)
           const tab = tabs.createTab({ url: body.url, spaceId: space.id, activate: !!body.activate })
           tabs.agentPulse(tab.id, body.label)
-          const targetId = await targetIdOf(tab.view.webContents)
-          return json(res, 201, {
-            id: tab.id,
-            url: tab.url,
-            space: space.name,
-            targetId,
-            cdpUrl: targetId ? `ws://127.0.0.1:${ctx.cdpPort}/devtools/page/${targetId}` : null
-          })
+          const created = { id: tab.id, url: tab.url, space: space.name }
+          if (ctx.cdpEnabled) {
+            const targetId = await targetIdOf(tab.view.webContents)
+            created.targetId = targetId
+            created.cdpUrl = targetId ? `ws://127.0.0.1:${ctx.cdpPort}/devtools/page/${targetId}` : null
+          }
+          return json(res, 201, created)
         }
       }
 
@@ -430,18 +462,21 @@ function startAgentApi(ctx) {
         }
 
         if (req.method === 'GET' && !sub) {
-          const targetId = wc ? await targetIdOf(wc) : null
-          return json(res, 200, {
+          const detail = {
             id: tab.id,
             url: tab.url,
             title: tab.title,
             loading: tab.loading,
             label: tab.agentLabel,
             takenOver: !!tab.agentTakenOver,
-            stopRequested: !!tab.agentStopRequested,
-            targetId,
-            cdpUrl: targetId ? `ws://127.0.0.1:${ctx.cdpPort}/devtools/page/${targetId}` : null
-          })
+            stopRequested: !!tab.agentStopRequested
+          }
+          if (ctx.cdpEnabled) {
+            const targetId = wc ? await targetIdOf(wc) : null
+            detail.targetId = targetId
+            detail.cdpUrl = targetId ? `ws://127.0.0.1:${ctx.cdpPort}/devtools/page/${targetId}` : null
+          }
+          return json(res, 200, detail)
         }
 
         if (req.method === 'POST' && sub === 'control') {
@@ -541,10 +576,26 @@ function startAgentApi(ctx) {
     } catch (err) {
       return json(res, 500, { error: String(err && err.message || err) })
     }
-  })
+  }
 
-  server.listen(ctx.port, '127.0.0.1')
-  return server
+  let unixServer = null
+  if (process.platform !== 'win32') {
+    try { fs.unlinkSync(socketPath) } catch {}
+    unixServer = http.createServer(handler)
+    unixServer.listen(socketPath, () => {
+      try { fs.chmodSync(socketPath, 0o600) } catch {}
+    })
+  }
+
+  const tcpServer = http.createServer((req, res) => {
+    if (!bearerMatches(req.headers.authorization, token)) {
+      return json(res, 401, { error: 'unauthorized' })
+    }
+    return handler(req, res)
+  })
+  tcpServer.listen(ctx.port, '127.0.0.1')
+
+  return { tcpServer, unixServer }
 }
 
 module.exports = { startAgentApi }

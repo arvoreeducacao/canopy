@@ -90,36 +90,44 @@ galho folder <space> <name> <links.json>   creates/updates a live folder
 
 ## Agent integration
 
-Two ports, both bound to `127.0.0.1` only (customizable via `GALHO_CDP_PORT` / `GALHO_API_PORT`):
+The primary transport is a **unix domain socket** at `<userData>/agent.sock` (macOS: `~/Library/Application Support/Galho/agent.sock`), mode `0600` — only your user can talk to it, no token needed. A TCP listener on `127.0.0.1:9224` (`GALHO_API_PORT`) is also available but requires a bearer token from `<userData>/agent-token`.
 
-- **9223 — full CDP**: `http://127.0.0.1:9223/json`
-- **9224 — high-level HTTP API**
-
-When an agent acts on a tab (click/type/navigate/eval), the page shows an **animated orange cursor plus a glow border** and the tab gets a pulsing badge in the sidebar. Screenshots work for background tabs and with the screen locked.
+When an agent acts on a tab (click/type/navigate/eval), the page shows an **animated cursor plus a glow border** and the tab gets a pulsing badge in the sidebar. Screenshots work for background tabs and with the screen locked.
 
 ```bash
-curl http://127.0.0.1:9224/                     # manifest + endpoints
-curl -X POST http://127.0.0.1:9224/tabs -d '{"url":"https://mail.google.com"}'
-curl http://127.0.0.1:9224/tabs/ID/screenshot -o shot.png
-curl -X POST http://127.0.0.1:9224/tabs/ID/click -d '{"x":500,"y":300}'
-curl -X POST http://127.0.0.1:9224/tabs/ID/type -d '{"text":"hello"}'
-curl -X POST http://127.0.0.1:9224/folders -d '{"space":"Work","name":"PRs","links":[{"title":"...","url":"..."}]}'
-curl http://127.0.0.1:9224/extensions
-curl -X POST http://127.0.0.1:9224/extensions -d '{"id":"eimadpbcbfnmbkopoojfekhnkhdbieeh"}'
+SOCK=~/Library/Application\ Support/Galho/agent.sock
+curl --unix-socket "$SOCK" http://galho/          # manifest + endpoints
+curl --unix-socket "$SOCK" -X POST http://galho/tabs -d '{"url":"https://mail.google.com"}'
+curl --unix-socket "$SOCK" http://galho/tabs/ID/screenshot -o shot.png
+curl --unix-socket "$SOCK" -X POST http://galho/tabs/ID/click -d '{"x":500,"y":300}'
+curl --unix-socket "$SOCK" -X POST http://galho/tabs/ID/type -d '{"text":"hello"}'
+curl --unix-socket "$SOCK" -X POST http://galho/folders -d '{"space":"Work","name":"PRs","links":[{"title":"...","url":"..."}]}'
+curl --unix-socket "$SOCK" http://galho/extensions
 ```
 
-Playwright / raw CDP:
+Over TCP (for clients that cannot use unix sockets):
+
+```bash
+TOKEN=$(cat ~/Library/Application\ Support/Galho/agent-token)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9224/tabs
+```
+
+**CDP is off by default.** Launch with `GALHO_CDP=1` (or an explicit `GALHO_CDP_PORT`) to expose full Chrome DevTools Protocol on `127.0.0.1:9223`. With CDP on, `GET /tabs` includes `targetId`/`cdpUrl` per tab, and Playwright works:
 
 ```js
 const { chromium } = require('playwright')
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9223')
 ```
 
-Or connect to the `cdpUrl` returned by `GET /tabs` for a specific tab.
-
 ### Security
 
-Any local process can reach both ports (same model as Chrome's `--remote-debugging-port`). Do not expose them to the network. The sidebar and window chrome are out of reach of web pages (separate WebContentsView) — a page cannot spoof the browser UI.
+Goal: **no unauthenticated local surface**. A browser holds your logged-in sessions; a plain localhost port is reachable by any process running as any user on the machine, so it would let any local app or malware drive the browser.
+
+- **Unix socket, mode 0600** — filesystem permissions are the authentication (same model as `docker.sock`). This is the default and preferred transport.
+- **TCP requires a bearer token** — random per install, stored at `<userData>/agent-token` (mode 0600). Requests without it get `401`.
+- **CDP is opt-in** — the DevTools protocol has no authentication at all, so the port simply does not exist unless you launch with `GALHO_CDP=1`. The high-level API (click/type/eval/screenshot) does not depend on it.
+
+Do not expose any of these to the network. The sidebar and window chrome are out of reach of web pages (separate WebContentsView) — a page cannot spoof the browser UI.
 
 ## Distribution
 
@@ -133,7 +141,7 @@ src/
   tab-manager.js        spaces, tabs, folders, split, archive, one WebContentsView per tab
   palette-controller.js command palette (transparent overlay) + actions + modes
   find-controller.js    find in page bar
-  agent-api.js          HTTP server on 9224 + injected AI cursor
+  agent-api.js          agent API (unix socket + TCP with token) + injected AI cursor
   menu.js               native menu + shortcuts
   state.js              debounced JSON persistence
   preload.js            IPC bridge with channel whitelist

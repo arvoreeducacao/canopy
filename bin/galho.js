@@ -2,19 +2,64 @@
 const { spawn, execSync } = require('child_process')
 const path = require('path')
 const fs = require('fs')
+const os = require('os')
+const http = require('http')
 
-const API = `http://127.0.0.1:${process.env.GALHO_API_PORT || 9224}`
+const API_PORT = Number(process.env.GALHO_API_PORT || 9224)
+
+function userDataDir() {
+  if (process.env.GALHO_PROFILE) return process.env.GALHO_PROFILE
+  const home = os.homedir()
+  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Galho')
+  if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Galho')
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'Galho')
+}
+
+function readToken() {
+  if (process.env.GALHO_TOKEN) return process.env.GALHO_TOKEN
+  const file = process.env.GALHO_TOKEN_FILE || path.join(userDataDir(), 'agent-token')
+  try {
+    return fs.readFileSync(file, 'utf8').trim()
+  } catch {
+    return null
+  }
+}
+
+function request(options, payload) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(options, res => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }))
+    })
+    req.on('error', reject)
+    if (payload) req.write(payload)
+    req.end()
+  })
+}
 
 async function api(method, route, body) {
-  const res = await fetch(API + route, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined
-  })
-  const type = res.headers.get('content-type') || ''
-  if (type.includes('image/png')) return Buffer.from(await res.arrayBuffer())
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  const payload = body ? JSON.stringify(body) : null
+  const headers = payload ? { 'Content-Type': 'application/json' } : {}
+  const socketPath = path.join(userDataDir(), 'agent.sock')
+  let res = null
+  if (process.platform !== 'win32' && fs.existsSync(socketPath)) {
+    try {
+      res = await request({ socketPath, method, path: route, headers }, payload)
+    } catch {
+      res = null
+    }
+  }
+  if (!res) {
+    const token = readToken()
+    const tcpHeaders = { ...headers }
+    if (token) tcpHeaders.Authorization = `Bearer ${token}`
+    res = await request({ host: '127.0.0.1', port: API_PORT, method, path: route, headers: tcpHeaders }, payload)
+  }
+  const type = res.headers['content-type'] || ''
+  if (type.includes('image/png')) return res.body
+  const data = JSON.parse(res.body.toString() || '{}')
+  if (res.status >= 400) throw new Error(data.error || `HTTP ${res.status}`)
   return data
 }
 
@@ -79,7 +124,8 @@ Uso:
   galho close <id>               fecha a aba
   galho folder <space> <nome> <links.json>   cria/atualiza live folder
 
-Env: GALHO_API_PORT (padrao 9224), GALHO_APP (caminho do .app)`
+Transporte: unix socket <userData>/agent.sock (padrao); fallback TCP 127.0.0.1 com Bearer token
+Env: GALHO_PROFILE (userData), GALHO_API_PORT (padrao 9224), GALHO_TOKEN, GALHO_TOKEN_FILE, GALHO_APP (caminho do .app)`
 
 async function main() {
   const [, , cmd, ...argv] = process.argv
@@ -87,7 +133,9 @@ async function main() {
 
   if (!cmd || cmd === 'start') {
     await ensureRunning()
-    console.log('galho rodando em ' + API)
+    const socketPath = path.join(userDataDir(), 'agent.sock')
+    const via = process.platform !== 'win32' && fs.existsSync(socketPath) ? socketPath : `http://127.0.0.1:${API_PORT}`
+    console.log('galho rodando em ' + via)
     return
   }
 
