@@ -93,7 +93,7 @@ async function ensureRunning() {
     await new Promise(r => setTimeout(r, 500))
     if (await isRunning()) return
   }
-  throw new Error('galho nao subiu em 15s')
+  throw new Error('galho did not start within 15s')
 }
 
 function parseFlags(args) {
@@ -108,24 +108,24 @@ function parseFlags(args) {
   return { flags, rest }
 }
 
-const HELP = `galho - CLI do browser Galho
+const HELP = `galho - Galho browser CLI
 
-Uso:
-  galho                          abre (ou foca) o browser
-  galho open <url> [-s space] [-f]   abre aba (padrao: space Agentes, sem foco)
-  galho tabs                     lista abas (id, space, url)
-  galho spaces                   lista spaces
-  galho shot <id> [-o out.png]   screenshot da aba
-  galho text <id>                innerText da pagina
-  galho eval <id> <expr>         roda JS na pagina
-  galho click <id> <x> <y>       clica com cursor animado
-  galho type <id> <texto>        digita na aba
-  galho press <id> <tecla>       pressiona tecla (Return, Tab, Escape...)
-  galho close <id>               fecha a aba
-  galho folder <space> <nome> <links.json>   cria/atualiza live folder
+Usage:
+  galho                          open (or focus) the browser
+  galho open <url> [-s space] [-f]   open tab (default: Agentes space, unfocused)
+  galho tabs                     list tabs (id, space, url)
+  galho spaces                   list spaces
+  galho shot <id> [-o out.png]   tab screenshot
+  galho text <id>                page innerText
+  galho eval <id> <expr>         run JS in the page
+  galho click <id> <x> <y>       click with animated cursor
+  galho type <id> <text>         type into the tab
+  galho press <id> <key>         press a key (Return, Tab, Escape...)
+  galho close <id>               close the tab
+  galho folder <space> <name> <links.json>   create/update live folder
 
-Transporte: unix socket <userData>/agent.sock (padrao); fallback TCP 127.0.0.1 com Bearer token
-Env: GALHO_PROFILE (userData), GALHO_API_PORT (padrao 9224), GALHO_TOKEN, GALHO_TOKEN_FILE, GALHO_APP (caminho do .app)`
+Transport: unix socket <userData>/agent.sock (default); TCP 127.0.0.1 fallback with Bearer token
+Env: GALHO_PROFILE (userData), GALHO_API_PORT (default 9224), GALHO_TOKEN, GALHO_TOKEN_FILE, GALHO_APP (.app path)`
 
 async function main() {
   const [, , cmd, ...argv] = process.argv
@@ -135,7 +135,7 @@ async function main() {
     await ensureRunning()
     const socketPath = path.join(userDataDir(), 'agent.sock')
     const via = process.platform !== 'win32' && fs.existsSync(socketPath) ? socketPath : `http://127.0.0.1:${API_PORT}`
-    console.log('galho rodando em ' + via)
+    console.log('galho running at ' + via)
     return
   }
 
@@ -145,7 +145,7 @@ async function main() {
   }
 
   if (cmd === 'open') {
-    if (!rest[0]) throw new Error('uso: galho open <url>')
+    if (!rest[0]) throw new Error('usage: galho open <url>')
     await ensureRunning()
     const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(rest[0]) ? rest[0] : 'https://' + rest[0]
     const tab = await api('POST', '/tabs', { url, space: flags.space, activate: !!flags.focus })
@@ -166,13 +166,13 @@ async function main() {
   if (cmd === 'spaces') {
     const spaces = await api('GET', '/spaces')
     for (const s of spaces) {
-      console.log(`${s.id}  ${s.active ? '*' : ' '} ${s.name} (${s.tabCount} abas, ${s.archivedCount} arquivadas)`)
+      console.log(`${s.id}  ${s.active ? '*' : ' '} ${s.name} (${s.tabCount} tabs, ${s.archivedCount} archived)`)
     }
     return
   }
 
   if (cmd === 'shot') {
-    if (!rest[0]) throw new Error('uso: galho shot <id>')
+    if (!rest[0]) throw new Error('usage: galho shot <id>')
     const png = await api('GET', `/tabs/${rest[0]}/screenshot`)
     const out = flags.out || `galho-${rest[0]}.png`
     fs.writeFileSync(out, png)
@@ -181,49 +181,49 @@ async function main() {
   }
 
   if (cmd === 'text') {
-    if (!rest[0]) throw new Error('uso: galho text <id>')
+    if (!rest[0]) throw new Error('usage: galho text <id>')
     const data = await api('GET', `/tabs/${rest[0]}/text`)
     console.log(data.text)
     return
   }
 
   if (cmd === 'eval') {
-    if (rest.length < 2) throw new Error('uso: galho eval <id> <expr>')
+    if (rest.length < 2) throw new Error('usage: galho eval <id> <expr>')
     const data = await api('POST', `/tabs/${rest[0]}/eval`, { expression: rest.slice(1).join(' ') })
     console.log(JSON.stringify(data.result, null, 2))
     return
   }
 
   if (cmd === 'click') {
-    if (rest.length < 3) throw new Error('uso: galho click <id> <x> <y>')
+    if (rest.length < 3) throw new Error('usage: galho click <id> <x> <y>')
     await api('POST', `/tabs/${rest[0]}/click`, { x: Number(rest[1]), y: Number(rest[2]) })
     console.log('ok')
     return
   }
 
   if (cmd === 'type') {
-    if (rest.length < 2) throw new Error('uso: galho type <id> <texto>')
+    if (rest.length < 2) throw new Error('usage: galho type <id> <text>')
     await api('POST', `/tabs/${rest[0]}/type`, { text: rest.slice(1).join(' ') })
     console.log('ok')
     return
   }
 
   if (cmd === 'press') {
-    if (rest.length < 2) throw new Error('uso: galho press <id> <tecla>')
+    if (rest.length < 2) throw new Error('usage: galho press <id> <key>')
     await api('POST', `/tabs/${rest[0]}/press`, { key: rest[1] })
     console.log('ok')
     return
   }
 
   if (cmd === 'close') {
-    if (!rest[0]) throw new Error('uso: galho close <id>')
+    if (!rest[0]) throw new Error('usage: galho close <id>')
     await api('DELETE', `/tabs/${rest[0]}`)
     console.log('ok')
     return
   }
 
   if (cmd === 'folder') {
-    if (rest.length < 3) throw new Error('uso: galho folder <space> <nome> <links.json>')
+    if (rest.length < 3) throw new Error('usage: galho folder <space> <name> <links.json>')
     const links = JSON.parse(fs.readFileSync(rest[2], 'utf8'))
     const existing = (await api('GET', '/folders')).find(f => f.name === rest[1] && f.space.toLowerCase() === rest[0].toLowerCase())
     if (existing) {
@@ -241,6 +241,6 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('erro:', err.message)
+  console.error('error:', err.message)
   process.exit(1)
 })

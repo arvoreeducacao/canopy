@@ -37,8 +37,8 @@ module.exports = { installSkill }
 if (require.main === module) {
   try {
     const installed = installSkill()
-    if (installed) console.log('galho: skill instalada em ~/.claude/skills/galho')
+    if (installed) console.log('galho: skill installed at ~/.claude/skills/galho')
   } catch (err) {
-    console.error('galho: falha ao instalar skill:', err.message)
+    console.error('galho: failed to install skill:', err.message)
   }
 }

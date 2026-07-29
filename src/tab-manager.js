@@ -48,7 +48,7 @@ class TabManager {
         archiveAfterMs: typeof s.archiveAfterMs === 'number' ? s.archiveAfterMs : null,
         folders: (s.folders || []).map(f => ({
           id: f.id || shortId(),
-          name: f.name || 'Pasta',
+          name: f.name || t('folder'),
           collapsed: !!f.collapsed,
           live: !!f.live,
           links: Array.isArray(f.links) ? f.links : []
