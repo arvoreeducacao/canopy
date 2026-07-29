@@ -39,7 +39,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec electron-builder ${{ matrix.args }}
+      - run: pnpm exec electron-builder ${{ matrix.args }} --publish never
       - uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.files }}

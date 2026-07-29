@@ -1,5 +1,5 @@
 {
-  "name": "galho",
+  "name": "galho-browser",
   "productName": "Galho",
   "version": "0.2.0",
   "description": "Arc-inspired, agent-native browser built on Electron",
@@ -7,7 +7,7 @@
   "author": "Joao Barros",
   "repository": {
     "type": "git",
-    "url": "https://github.com/arvoreeducacao/galho.git"
+    "url": "https://github.com/arvoreeducacao/galho-browser.git"
   },
   "main": "src/main.js",
   "bin": {

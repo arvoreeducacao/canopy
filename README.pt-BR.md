@@ -1,6 +1,6 @@
 # Galho
 
-[![CI](https://github.com/arvoreeducacao/galho/actions/workflows/ci.yml/badge.svg)](https://github.com/arvoreeducacao/galho/actions/workflows/ci.yml)
+[![CI](https://github.com/arvoreeducacao/galho-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/arvoreeducacao/galho-browser/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Browser Arc-like e agent-native, construido sobre Electron (engine Chromium real). Sidebar de vidro colorida pelo space, spaces, command palette com busca por site, split view redimensionavel, pastas (incluindo live folders), extensoes da Chrome Web Store, find in page, auto-archive — e CDP + API HTTP de agente embutidos de fabrica, com overlay de takeover visivel para voce sempre saber quando um agente esta dirigindo.
