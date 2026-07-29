@@ -47,7 +47,7 @@ const cursorSetup = () => `(() => {
   cursor.id = '__galho_cursor'
   cursor.style.cssText = 'position:fixed;z-index:2147483647;width:24px;height:24px;pointer-events:none;left:50%;top:40%;transition:left 0.4s cubic-bezier(0.2,0.7,0.3,1),top 0.4s cubic-bezier(0.2,0.7,0.3,1),opacity 0.3s;opacity:0'
   const halo = document.createElement('div')
-  halo.style.cssText = 'position:absolute;left:-9px;top:-9px;width:30px;height:30px;border-radius:50%;background:conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6);filter:blur(9px);opacity:0.55;animation:__galho_spin 2.6s linear infinite'
+  halo.style.cssText = 'position:absolute;left:-9px;top:-9px;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.55),transparent 70%);filter:blur(7px);opacity:0.7'
   const arrow = document.createElement('div')
   arrow.style.cssText = 'position:absolute;left:0;top:0;width:19px;height:24px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4))'
   const svgNs = 'http://www.w3.org/2000/svg'
@@ -70,14 +70,14 @@ const cursorSetup = () => `(() => {
   veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;background-color:rgba(12,8,24,0.32);background-image:radial-gradient(rgba(255,255,255,0.10) 1px,transparent 1.4px);background-size:9px 9px;opacity:0;transition:opacity 0.5s'
   const glow = document.createElement('div')
   glow.id = '__galho_glow'
-  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;box-shadow:inset 0 0 0 2.5px rgba(139,92,246,0.5),inset 0 0 44px rgba(20,184,166,0.16);border-radius:8px;opacity:0;transition:opacity 0.4s;animation:__galho_hue 9s linear infinite'
+  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;box-shadow:inset 0 0 0 2px rgba(255,255,255,0.30),inset 0 0 36px rgba(255,255,255,0.10);border-radius:8px;opacity:0;transition:opacity 0.4s'
   const pill = document.createElement('div')
   pill.id = '__galho_pill'
-  pill.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:15px;border:1px solid transparent;background:linear-gradient(rgba(22,20,32,0.93),rgba(22,20,32,0.93)) padding-box,conic-gradient(from 120deg,rgba(139,92,246,0.85),rgba(20,184,166,0.85),rgba(245,158,11,0.7),rgba(236,72,153,0.8),rgba(139,92,246,0.85)) border-box;backdrop-filter:blur(16px);box-shadow:0 12px 40px rgba(0,0,0,0.45);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 0.4s,transform 0.4s'
+  pill.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:15px;border:1px solid rgba(255,255,255,0.16);background:rgba(22,20,32,0.93);backdrop-filter:blur(16px);box-shadow:0 12px 40px rgba(0,0,0,0.45);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 0.4s,transform 0.4s'
   const spinner = document.createElement('div')
-  spinner.style.cssText = 'width:15px;height:15px;border-radius:50%;background:conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6);-webkit-mask:radial-gradient(circle,transparent 0 4.5px,black 5px);animation:__galho_spin 1.1s linear infinite'
+  spinner.style.cssText = 'width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.85);border-top-color:transparent;animation:__galho_spin 0.9s linear infinite'
   const styleEl = document.createElement('style')
-  styleEl.textContent = '@keyframes __galho_spin{to{transform:rotate(360deg)}}@keyframes __galho_hue{to{filter:hue-rotate(360deg)}}'
+  styleEl.textContent = '@keyframes __galho_spin{to{transform:rotate(360deg)}}'
   const textWrap = document.createElement('div')
   const labelEl = document.createElement('div')
   labelEl.style.cssText = 'font-size:13px;font-weight:600;color:rgba(250,248,255,0.95);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
@@ -144,7 +144,7 @@ const cursorSetup = () => `(() => {
     },
     ripple(x, y) {
       const r = document.createElement('div')
-      r.style.cssText = 'position:fixed;z-index:2147483647;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;pointer-events:none;border:2.5px solid transparent;background:linear-gradient(transparent,transparent) padding-box,conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6) border-box;left:' + x + 'px;top:' + y + 'px;transform:scale(1);opacity:1;transition:transform 0.45s ease-out,opacity 0.45s ease-out'
+      r.style.cssText = 'position:fixed;z-index:2147483647;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;pointer-events:none;border:2.5px solid rgba(255,255,255,0.85);left:' + x + 'px;top:' + y + 'px;transform:scale(1);opacity:1;transition:transform 0.45s ease-out,opacity 0.45s ease-out'
       document.documentElement.appendChild(r)
       requestAnimationFrame(() => {
         r.style.transform = 'scale(3.2)'

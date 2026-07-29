@@ -413,8 +413,8 @@ body.peek #empty-hint {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, #8B5CF6, #14B8A6, #F59E0B, #EC4899, #8B5CF6);
-  animation: agent-pulse 1.2s ease-in-out infinite, agent-spin 2.6s linear infinite;
+  background: var(--fg-dim);
+  animation: agent-pulse 1.2s ease-in-out infinite;
 }
 
 #newtab-row {
@@ -575,21 +575,17 @@ body.peek #empty-hint {
 }
 
 .agent-badge {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, #8B5CF6, #14B8A6, #F59E0B, #EC4899, #8B5CF6);
+  background: var(--fg-dim);
   flex-shrink: 0;
-  animation: agent-pulse 1.2s ease-in-out infinite, agent-spin 2.6s linear infinite;
+  animation: agent-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes agent-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.5); }
-  50% { box-shadow: 0 0 0 5px rgba(139, 92, 246, 0); }
-}
-
-@keyframes agent-spin {
-  to { transform: rotate(360deg); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(140, 140, 160, 0.45); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px rgba(140, 140, 160, 0); opacity: 0.6; }
 }
 
 #topbar .spacer {
