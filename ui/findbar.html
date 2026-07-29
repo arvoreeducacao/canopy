@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Buscar</title>
+  <style>
+    :root {
+      --box-bg: rgba(250, 249, 253, 0.95);
+      --fg: rgba(35, 30, 55, 0.95);
+      --fg-dim: rgba(35, 30, 55, 0.5);
+      --border: rgba(120, 110, 150, 0.18);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --box-bg: rgba(38, 36, 48, 0.96);
+        --fg: rgba(242, 240, 250, 0.95);
+        --fg-dim: rgba(242, 240, 250, 0.5);
+        --border: rgba(255, 255, 255, 0.1);
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body { height: 100%; background: transparent; overflow: hidden; }
+
+    #bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 40px;
+      margin: 4px;
+      padding: 0 12px;
+      background: var(--box-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(10, 5, 30, 0.25);
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    }
+
+    #q {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: 13px;
+      color: var(--fg);
+      min-width: 0;
+    }
+
+    #count {
+      font-size: 11.5px;
+      color: var(--fg-dim);
+      white-space: nowrap;
+    }
+
+    button {
+      border: none;
+      background: transparent;
+      color: var(--fg-dim);
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    button:hover { background: rgba(120, 120, 140, 0.18); color: var(--fg); }
+    button:focus { outline: none; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <input id="q" placeholder="Buscar na pagina...">
+    <span id="count"></span>
+    <button id="prev" title="Anterior"><svg viewBox="0 0 16 16" width="11" height="11"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="next" title="Proximo"><svg viewBox="0 0 16 16" width="11" height="11"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="close" title="Fechar"><svg viewBox="0 0 16 16" width="11" height="11"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+  </div>
+  <script>
+    const q = document.getElementById('q')
+    const count = document.getElementById('count')
+
+    q.addEventListener('input', () => {
+      window.galho.send('find:query', { query: q.value })
+    })
+
+    q.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        window.galho.send('find:query', { query: q.value, next: true, forward: !e.shiftKey })
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        window.galho.send('find:close')
+      }
+    })
+
+    document.getElementById('prev').onclick = () => window.galho.send('find:query', { query: q.value, next: true, forward: false })
+    document.getElementById('next').onclick = () => window.galho.send('find:query', { query: q.value, next: true, forward: true })
+    document.getElementById('close').onclick = () => window.galho.send('find:close')
+
+    window.galho.on('find:open', () => {
+      q.focus()
+      q.select()
+    })
+
+    window.galho.on('find:result', ({ active, total }) => {
+      count.textContent = total ? `${active}/${total}` : q.value ? '0/0' : ''
+    })
+  </script>
+</body>
+</html>

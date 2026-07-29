@@ -1,8 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-const SEND_CHANNELS = ['ui', 'palette:run', 'palette:hide']
+const SEND_CHANNELS = ['ui', 'palette:run', 'palette:hide', 'find:query', 'find:close']
 const INVOKE_CHANNELS = ['palette:query']
-const ON_CHANNELS = ['state', 'palette:open', 'space:edit']
+const ON_CHANNELS = ['state', 'palette:open', 'space:edit', 'find:open', 'find:result']
 
 contextBridge.exposeInMainWorld('galho', {
   send: (channel, data) => {

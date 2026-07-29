@@ -1,18 +1,55 @@
 {
   "name": "galho",
   "productName": "Galho",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Browser Arc-like, agent-native, feito na Arvore",
   "main": "src/main.js",
+  "bin": {
+    "galho": "bin/galho.js"
+  },
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^37.2.0"
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron"
+      "electron",
+      "electron-builder"
     ]
+  },
+  "build": {
+    "appId": "com.arvore.galho",
+    "productName": "Galho",
+    "files": [
+      "src/**/*",
+      "ui/**/*",
+      "build/icon.png"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": ["AppImage", "deb"],
+      "category": "Network"
+    }
   }
 }

@@ -6,6 +6,10 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="empty-hint">
+    <svg viewBox="0 0 32 32" width="44" height="44"><path d="M16 28V14M16 14c0-5 3-9 9-10-1 6-4 9-9 10zM16 18c0-4-2.5-7-7-8 .8 4.6 3 7 7 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="line"><span class="kbd">&#8984;T</span> pra abrir uma aba</div>
+  </div>
   <div id="sidebar">
     <div id="titlebar"></div>
     <div id="topbar">
@@ -17,6 +21,10 @@
       </button>
       <button id="nav-reload" class="nav-btn" title="Recarregar">
         <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="spacer"></div>
+      <button id="clean-btn" class="nav-btn" title="Limpar abas (Cmd+Shift+K)">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M9.5 2l-1 5.5M5 7.5h7l-1 6a1 1 0 0 1-1 .8H7a1 1 0 0 1-1-.8l-1-6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
     <div id="urlchip" title="Abrir URL (Cmd+L)">

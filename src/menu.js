@@ -1,8 +1,22 @@
 const { Menu, app, clipboard } = require('electron')
 
 function buildMenu(ctx) {
-  const t = () => ctx.tabs()
-  const p = () => ctx.palette()
+  const t = () => {
+    const e = ctx.entry()
+    return e && e.tabs
+  }
+  const p = () => {
+    const e = ctx.entry()
+    return e && e.palette
+  }
+  const f = () => {
+    const e = ctx.entry()
+    return e && e.find
+  }
+  const w = () => {
+    const e = ctx.entry()
+    return e && e.win
+  }
 
   const spaceItems = []
   for (let i = 1; i <= 9; i++) {
@@ -40,11 +54,13 @@ function buildMenu(ctx) {
       submenu: [
         { label: 'Nova aba...', accelerator: 'CommandOrControl+T', click: () => p() && p().open('default') },
         { label: 'Abrir URL...', accelerator: 'CommandOrControl+L', click: () => p() && p().open('url') },
+        { label: 'Nova janela', accelerator: 'CommandOrControl+N', click: () => ctx.newWindow() },
         { type: 'separator' },
-        { label: 'Fechar aba', accelerator: 'CommandOrControl+W', click: () => { const tm = t(); if (tm) { const a = tm.activeTab(); if (a) tm.closeTab(a.id) } } },
+        { label: 'Arquivar aba', accelerator: 'CommandOrControl+W', click: () => { const tm = t(); if (tm) { const a = tm.activeTab(); if (a) tm.archiveTab(a.id) } } },
         { label: 'Reabrir aba fechada', accelerator: 'CommandOrControl+Shift+T', click: () => t() && t().reopenClosed() },
+        { label: 'Limpar abas do espaco', accelerator: 'CommandOrControl+Shift+K', click: () => t() && t().archiveAllUnpinned() },
         { type: 'separator' },
-        { label: 'Novo espaco', accelerator: 'CommandOrControl+Shift+N', click: () => t() && t().createSpace() }
+        { label: 'Novo espaco', accelerator: 'CommandOrControl+Control+N', click: () => t() && t().createSpace() }
       ]
     },
     {
@@ -58,7 +74,8 @@ function buildMenu(ctx) {
         { role: 'paste', label: 'Colar' },
         { role: 'selectAll', label: 'Selecionar tudo' },
         { type: 'separator' },
-        { label: 'Copiar URL', accelerator: 'CommandOrControl+Shift+C', click: () => { const tm = t(); const a = tm && tm.activeTab(); if (a && a.url) clipboard.writeText(a.url) } }
+        { label: 'Copiar URL', accelerator: 'CommandOrControl+Shift+C', click: () => { const tm = t(); const a = tm && tm.activeTab(); if (a && a.url) clipboard.writeText(a.url) } },
+        { label: 'Buscar na pagina...', accelerator: 'CommandOrControl+F', click: () => f() && f().open() }
       ]
     },
     {
@@ -68,13 +85,17 @@ function buildMenu(ctx) {
         { label: 'Recarregar sem cache', accelerator: 'CommandOrControl+Shift+R', click: () => t() && t().reload(true) },
         { type: 'separator' },
         { label: 'Mostrar/ocultar sidebar', accelerator: 'CommandOrControl+S', click: () => t() && t().toggleSidebar() },
+        { label: 'Fixar/desafixar como favorito', accelerator: 'CommandOrControl+D', click: () => t() && t().togglePin() },
+        { label: 'Picture-in-Picture', accelerator: 'CommandOrControl+Shift+P', click: () => t() && t().togglePip() },
+        { type: 'separator' },
+        { label: 'Split view...', accelerator: 'CommandOrControl+Shift+D', click: () => { const tm = t(); if (!tm) return; tm.split ? tm.closeSplit() : p().open('split') } },
         { type: 'separator' },
         { label: 'Aumentar zoom', accelerator: 'CommandOrControl+Plus', click: () => zoom(t(), 0.5) },
         { label: 'Diminuir zoom', accelerator: 'CommandOrControl+-', click: () => zoom(t(), -0.5) },
         { label: 'Zoom padrao', accelerator: 'CommandOrControl+0', click: () => zoom(t(), 0) },
         { type: 'separator' },
         { label: 'DevTools da aba', accelerator: 'CommandOrControl+Alt+I', click: () => { const tm = t(); const a = tm && tm.activeTab(); if (a && a.view) a.view.webContents.openDevTools({ mode: 'detach' }) } },
-        { label: 'DevTools da interface', accelerator: 'CommandOrControl+Alt+Shift+I', click: () => ctx.win() && ctx.win().webContents.openDevTools({ mode: 'detach' }) },
+        { label: 'DevTools da interface', accelerator: 'CommandOrControl+Alt+Shift+I', click: () => w() && w().webContents.openDevTools({ mode: 'detach' }) },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Tela cheia' }
       ]
@@ -83,7 +104,9 @@ function buildMenu(ctx) {
       label: 'Historico',
       submenu: [
         { label: 'Voltar', accelerator: 'CommandOrControl+[', click: () => t() && t().goBack() },
-        { label: 'Avancar', accelerator: 'CommandOrControl+]', click: () => t() && t().goForward() }
+        { label: 'Avancar', accelerator: 'CommandOrControl+]', click: () => t() && t().goForward() },
+        { type: 'separator' },
+        { label: 'Abas arquivadas...', click: () => p() && p().open('archived') }
       ]
     },
     {

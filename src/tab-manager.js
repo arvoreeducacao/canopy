@@ -1,11 +1,12 @@
 const { WebContentsView, Menu, clipboard } = require('electron')
-const path = require('path')
 const crypto = require('crypto')
 
-const NEWTAB_URL = 'file://' + path.join(__dirname, '..', 'ui', 'newtab.html')
 const SPACE_COLORS = ['#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#14B8A6', '#6366F1']
+const SPACE_ICONS = ['leaf', 'home', 'briefcase', 'robot', 'book', 'bolt', 'star', 'heart', 'code', 'rocket', 'music', 'chat']
 const SIDEBAR_WIDTH = 300
 const PAD = 8
+const SPLIT_GAP = 8
+const ARCHIVE_AFTER_MS = 12 * 60 * 60 * 1000
 
 function shortId() {
   return crypto.randomBytes(4).toString('hex')
@@ -19,30 +20,48 @@ function hostOf(url) {
   }
 }
 
-function isNewtab(url) {
-  return !url || url.startsWith('file://') && url.includes('newtab.html')
-}
-
 class TabManager {
-  constructor(win, store, onChange) {
+  constructor(win, data, sharedHistory, onChange) {
     this.win = win
-    this.store = store
     this.onChange = onChange
+    this.history = sharedHistory
     this.tabs = new Map()
     this.spaces = []
     this.closedStack = []
-    this.attachedView = null
+    this.attachedViews = []
+    this.split = null
     this.emitTimer = null
 
-    const data = store.data || {}
     this.sidebarOpen = data.sidebarOpen !== false
-    this.history = Array.isArray(data.history) ? data.history : []
 
     for (const s of data.spaces || []) {
-      const space = { id: s.id || shortId(), name: s.name || 'Espaco', color: s.color || SPACE_COLORS[0], tabIds: [], activeTabId: null }
+      const space = {
+        id: s.id || shortId(),
+        name: s.name || 'Espaco',
+        color: s.color || SPACE_COLORS[0],
+        icon: s.icon || null,
+        folders: (s.folders || []).map(f => ({
+          id: f.id || shortId(),
+          name: f.name || 'Pasta',
+          collapsed: !!f.collapsed,
+          live: !!f.live,
+          links: Array.isArray(f.links) ? f.links : []
+        })),
+        archived: Array.isArray(s.archived) ? s.archived : [],
+        tabIds: [],
+        activeTabId: null
+      }
       for (const t of s.tabs || []) {
-        if (!t.url) continue
-        const tab = this.makeRecord({ id: t.id, url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, spaceId: space.id })
+        if (!t.url || t.url.startsWith('file://')) continue
+        const tab = this.makeRecord({
+          id: t.id,
+          url: t.url,
+          title: t.title,
+          favicon: t.favicon,
+          pinned: t.pinned,
+          folderId: t.folderId,
+          spaceId: space.id
+        })
         space.tabIds.push(tab.id)
       }
       if (s.activeTabId && space.tabIds.includes(s.activeTabId)) space.activeTabId = s.activeTabId
@@ -58,23 +77,24 @@ class TabManager {
   }
 
   seed() {
-    const personal = { id: shortId(), name: 'Pessoal', color: '#8B5CF6', tabIds: [], activeTabId: null }
-    const work = { id: shortId(), name: 'Trabalho', color: '#14B8A6', tabIds: [], activeTabId: null }
-    this.spaces.push(personal, work)
-    const tab = this.makeRecord({ url: NEWTAB_URL, spaceId: personal.id })
-    personal.tabIds.push(tab.id)
-    personal.activeTabId = tab.id
+    this.spaces.push(
+      { id: shortId(), name: 'Pessoal', color: '#8B5CF6', icon: 'leaf', folders: [], archived: [], tabIds: [], activeTabId: null },
+      { id: shortId(), name: 'Trabalho', color: '#14B8A6', icon: 'briefcase', folders: [], archived: [], tabIds: [], activeTabId: null }
+    )
   }
 
-  makeRecord({ id, url, title, favicon, pinned, spaceId }) {
+  makeRecord({ id, url, title, favicon, pinned, folderId, spaceId }) {
     const tab = {
       id: id || shortId(),
       url,
-      title: title || hostOf(url) || 'Nova aba',
+      title: title || hostOf(url) || url,
       favicon: favicon || null,
       pinned: !!pinned,
+      folderId: folderId || null,
       spaceId,
       loading: false,
+      lastActiveAt: Date.now(),
+      agentUntil: 0,
       view: null
     }
     this.tabs.set(tab.id, tab)
@@ -99,8 +119,7 @@ class TabManager {
     const view = new WebContentsView({
       webPreferences: {
         sandbox: true,
-        contextIsolation: true,
-        backgroundThrottling: true
+        contextIsolation: true
       }
     })
     view.setBackgroundColor('#FFFFFFFF')
@@ -152,6 +171,10 @@ class TabManager {
       }
     })
 
+    wc.on('focus', () => {
+      tab.lastActiveAt = Date.now()
+    })
+
     wc.setWindowOpenHandler(details => {
       const activate = details.disposition !== 'background-tab'
       this.createTab({ url: details.url, spaceId: tab.spaceId, activate })
@@ -161,8 +184,6 @@ class TabManager {
     wc.on('context-menu', (_e, params) => {
       this.showPageContextMenu(tab, params)
     })
-
-    wc.on('found-in-page', () => {})
   }
 
   showPageContextMenu(tab, params) {
@@ -171,6 +192,7 @@ class TabManager {
     if (params.linkURL) {
       template.push(
         { label: 'Abrir link em nova aba', click: () => this.createTab({ url: params.linkURL, spaceId: tab.spaceId, activate: false }) },
+        { label: 'Abrir link em split view', click: () => { const t = this.createTab({ url: params.linkURL, spaceId: tab.spaceId, activate: false }); this.openSplit(tab.id, t.id) } },
         { label: 'Copiar link', click: () => clipboard.writeText(params.linkURL) },
         { type: 'separator' }
       )
@@ -185,6 +207,9 @@ class TabManager {
     if (params.isEditable) {
       template.push({ role: 'cut', label: 'Recortar' }, { role: 'copy', label: 'Copiar' }, { role: 'paste', label: 'Colar' }, { type: 'separator' })
     }
+    if (params.mediaType === 'video') {
+      template.push({ label: 'Picture-in-Picture', click: () => this.togglePip() }, { type: 'separator' })
+    }
     template.push(
       { label: 'Voltar', enabled: this.canGoBack(tab), click: () => this.goBack(tab.id) },
       { label: 'Avancar', enabled: this.canGoForward(tab), click: () => this.goForward(tab.id) },
@@ -195,9 +220,10 @@ class TabManager {
     Menu.buildFromTemplate(template).popup({ window: this.win })
   }
 
-  createTab({ url, spaceId, activate = true, pinned = false, afterId } = {}) {
+  createTab({ url, spaceId, activate = true, pinned = false, folderId = null, afterId } = {}) {
+    if (!url) return null
     const space = this.spaces.find(s => s.id === spaceId) || this.activeSpace()
-    const tab = this.makeRecord({ url: url || NEWTAB_URL, pinned, spaceId: space.id })
+    const tab = this.makeRecord({ url, pinned, folderId, spaceId: space.id })
     let index = space.tabIds.length
     if (afterId) {
       const i = space.tabIds.indexOf(afterId)
@@ -215,58 +241,182 @@ class TabManager {
     if (!tab) return
     const space = this.spaceOf(tab)
     if (!space) return
-    this.activeSpaceId = space.id
-    space.activeTabId = tab.id
-    const view = this.ensureView(tab)
-    if (this.attachedView && this.attachedView !== view) {
-      this.win.contentView.removeChildView(this.attachedView)
+    if (space.id !== this.activeSpaceId) {
+      this.activeSpaceId = space.id
+      if (this.split) this.split = null
     }
-    if (this.attachedView !== view) {
-      this.win.contentView.addChildView(view)
-      this.attachedView = view
+    if (this.split) {
+      if (id !== this.split.mainId && id !== this.split.sideId) {
+        this.split.mainId = id
+      }
     }
-    this.layout()
-    view.webContents.focus()
+    space.activeTabId = id
+    tab.lastActiveAt = Date.now()
+    this.syncViews()
+    tab.view.webContents.focus()
     this.emit()
   }
 
   activateSpace(id) {
     const space = this.spaces.find(s => s.id === id)
     if (!space) return
-    this.activeSpaceId = space.id
-    if (!space.tabIds.length) {
-      this.createTab({ spaceId: space.id, activate: true })
+    if (this.activeSpaceId !== id && this.split) this.split = null
+    this.activeSpaceId = id
+    if (space.activeTabId || space.tabIds.length) {
+      this.activateTab(space.activeTabId || space.tabIds[0])
       return
     }
-    this.activateTab(space.activeTabId || space.tabIds[0])
+    this.syncViews()
+    this.emit()
+  }
+
+  syncViews() {
+    const space = this.activeSpace()
+    const needed = []
+    if (space) {
+      if (this.split) {
+        const main = this.tabs.get(this.split.mainId)
+        const side = this.tabs.get(this.split.sideId)
+        if (main) needed.push(this.ensureView(main))
+        if (side) needed.push(this.ensureView(side))
+      } else if (space.activeTabId) {
+        const tab = this.tabs.get(space.activeTabId)
+        if (tab) needed.push(this.ensureView(tab))
+      }
+    }
+    for (const view of this.attachedViews) {
+      if (!needed.includes(view)) this.win.contentView.removeChildView(view)
+    }
+    for (const view of needed) {
+      if (!this.attachedViews.includes(view)) this.win.contentView.addChildView(view)
+    }
+    this.attachedViews = needed
+    this.layout()
+  }
+
+  layout() {
+    const [w, h] = this.win.getContentSize()
+    const x = this.sidebarOpen ? SIDEBAR_WIDTH : PAD
+    this.contentBounds = {
+      x,
+      y: PAD,
+      width: Math.max(0, w - x - PAD),
+      height: Math.max(0, h - PAD * 2)
+    }
+    const b = this.contentBounds
+    if (this.split && this.attachedViews.length === 2) {
+      const half = Math.floor((b.width - SPLIT_GAP) / 2)
+      this.attachedViews[0].setBounds({ x: b.x, y: b.y, width: half, height: b.height })
+      this.attachedViews[1].setBounds({ x: b.x + half + SPLIT_GAP, y: b.y, width: b.width - half - SPLIT_GAP, height: b.height })
+    } else if (this.attachedViews.length) {
+      this.attachedViews[0].setBounds(b)
+    }
+  }
+
+  openSplit(mainId, sideId) {
+    const main = this.tabs.get(mainId)
+    const side = this.tabs.get(sideId)
+    if (!main || !side || mainId === sideId) return
+    if (side.spaceId !== main.spaceId) this.moveTabToSpace(sideId, main.spaceId)
+    this.split = { mainId, sideId }
+    const space = this.spaceOf(main)
+    this.activeSpaceId = space.id
+    space.activeTabId = mainId
+    this.syncViews()
+    this.emit()
+  }
+
+  closeSplit() {
+    if (!this.split) return
+    this.split = null
+    this.syncViews()
+    this.emit()
   }
 
   closeTab(id) {
     const tab = this.tabs.get(id)
     if (!tab) return
     const space = this.spaceOf(tab)
-    if (!isNewtab(tab.url)) {
-      this.closedStack.push({ url: tab.url, title: tab.title, pinned: tab.pinned, spaceId: tab.spaceId })
-      if (this.closedStack.length > 50) this.closedStack.shift()
-    }
-    const idx = space ? space.tabIds.indexOf(id) : -1
-    if (space) space.tabIds = space.tabIds.filter(t => t !== id)
-    if (tab.view) {
-      if (this.attachedView === tab.view) {
-        this.win.contentView.removeChildView(tab.view)
-        this.attachedView = null
+    this.closedStack.push({ url: tab.url, title: tab.title, pinned: tab.pinned, spaceId: tab.spaceId })
+    if (this.closedStack.length > 50) this.closedStack.shift()
+    this.removeTab(tab, { destroy: true })
+    if (space && space.id === this.activeSpaceId && !space.activeTabId) {
+      const next = space.tabIds[space.tabIds.length - 1]
+      if (next) {
+        this.activateTab(next)
+        return
       }
-      try { tab.view.webContents.close() } catch {}
     }
-    this.tabs.delete(id)
-    if (space && space.id === this.activeSpaceId && space.activeTabId === id) {
-      const next = space.tabIds[Math.min(Math.max(idx, 0), space.tabIds.length - 1)]
-      if (next) this.activateTab(next)
-      else this.createTab({ spaceId: space.id, activate: true })
+    this.syncViews()
+    this.emit()
+  }
+
+  removeTab(tab, { destroy }) {
+    const space = this.spaceOf(tab)
+    if (this.split && (this.split.mainId === tab.id || this.split.sideId === tab.id)) this.split = null
+    if (space) {
+      const idx = space.tabIds.indexOf(tab.id)
+      space.tabIds = space.tabIds.filter(t => t !== tab.id)
+      if (space.activeTabId === tab.id) {
+        space.activeTabId = space.tabIds[Math.min(Math.max(idx - 1, 0), space.tabIds.length - 1)] || null
+      }
+    }
+    if (tab.view) {
+      if (this.attachedViews.includes(tab.view)) {
+        this.win.contentView.removeChildView(tab.view)
+        this.attachedViews = this.attachedViews.filter(v => v !== tab.view)
+      }
+      if (destroy) {
+        try { tab.view.webContents.close() } catch {}
+      }
+    }
+    this.tabs.delete(tab.id)
+  }
+
+  archiveTab(id) {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    const space = this.spaceOf(tab)
+    if (space) {
+      space.archived.unshift({ url: tab.url, title: tab.title, favicon: tab.favicon, archivedAt: Date.now() })
+      if (space.archived.length > 200) space.archived.length = 200
+    }
+    this.removeTab(tab, { destroy: true })
+    if (space && space.id === this.activeSpaceId && !space.activeTabId && space.tabIds.length) {
+      this.activateTab(space.tabIds[space.tabIds.length - 1])
       return
     }
-    if (space && space.activeTabId === id) space.activeTabId = space.tabIds[0] || null
+    this.syncViews()
     this.emit()
+  }
+
+  archiveAllUnpinned(spaceId) {
+    const space = this.spaces.find(s => s.id === spaceId) || this.activeSpace()
+    if (!space) return
+    for (const id of [...space.tabIds]) {
+      const tab = this.tabs.get(id)
+      if (tab && !tab.pinned) this.archiveTab(id)
+    }
+  }
+
+  autoArchive(maxAgeMs = ARCHIVE_AFTER_MS) {
+    const now = Date.now()
+    for (const space of this.spaces) {
+      if (space.name === 'Agentes') continue
+      for (const id of [...space.tabIds]) {
+        const tab = this.tabs.get(id)
+        if (!tab || tab.pinned) continue
+        if (space.activeTabId === id && space.id === this.activeSpaceId) continue
+        if (now - tab.lastActiveAt > maxAgeMs) this.archiveTab(id)
+      }
+    }
+  }
+
+  restoreArchived(spaceId, index) {
+    const space = this.spaces.find(s => s.id === spaceId)
+    if (!space || !space.archived[index]) return
+    const item = space.archived.splice(index, 1)[0]
+    this.createTab({ url: item.url, spaceId: space.id, activate: true })
   }
 
   reopenClosed() {
@@ -283,42 +433,132 @@ class TabManager {
   }
 
   togglePin(id) {
-    const tab = this.tabs.get(id)
+    const tab = this.tabs.get(id || (this.activeTab() || {}).id)
     if (!tab) return
     tab.pinned = !tab.pinned
+    if (tab.pinned) tab.folderId = null
     this.emit()
+  }
+
+  togglePip() {
+    const tab = this.activeTab()
+    if (!tab || !tab.view) return
+    tab.view.webContents.executeJavaScript(`(async () => {
+      if (document.pictureInPictureElement) { await document.exitPictureInPicture(); return 'exit' }
+      const videos = [...document.querySelectorAll('video')]
+      const video = videos.find(v => !v.paused) || videos[0]
+      if (!video) return 'no-video'
+      await video.requestPictureInPicture()
+      return 'ok'
+    })()`, true).catch(() => {})
   }
 
   moveTabToSpace(id, spaceId) {
     const tab = this.tabs.get(id)
     const target = this.spaces.find(s => s.id === spaceId)
     if (!tab || !target || tab.spaceId === spaceId) return
+    if (this.split && (this.split.mainId === id || this.split.sideId === id)) this.split = null
     const source = this.spaceOf(tab)
     if (source) {
       const wasActive = source.activeTabId === id
       source.tabIds = source.tabIds.filter(t => t !== id)
-      if (wasActive) {
-        source.activeTabId = source.tabIds[0] || null
-        if (source.id === this.activeSpaceId) {
-          if (source.activeTabId) this.activateTab(source.activeTabId)
-          else this.createTab({ spaceId: source.id, activate: true })
-        }
-      }
+      if (wasActive) source.activeTabId = source.tabIds[0] || null
     }
     tab.spaceId = target.id
+    tab.folderId = null
     target.tabIds.push(id)
     if (!target.activeTabId) target.activeTabId = id
+    if (source && source.id === this.activeSpaceId) this.syncViews()
     this.emit()
   }
 
-  reorderTab(id, newIndex) {
+  reorderTab(id, index, folderId = null) {
     const tab = this.tabs.get(id)
     if (!tab) return
     const space = this.spaceOf(tab)
     if (!space) return
-    const ids = space.tabIds.filter(t => t !== id)
-    ids.splice(Math.max(0, Math.min(newIndex, ids.length)), 0, id)
-    space.tabIds = ids
+    if (folderId && !space.folders.find(f => f.id === folderId)) folderId = null
+    tab.folderId = folderId
+    if (tab.pinned) tab.pinned = false
+    const siblings = space.tabIds.filter(tid => {
+      const t = this.tabs.get(tid)
+      return t && tid !== id && !t.pinned && (t.folderId || null) === (folderId || null)
+    })
+    const anchor = siblings[Math.max(0, Math.min(index, siblings.length))]
+    const rest = space.tabIds.filter(t => t !== id)
+    let pos = anchor ? rest.indexOf(anchor) : rest.length
+    if (index >= siblings.length) pos = anchor ? rest.indexOf(anchor) + 1 : rest.length
+    rest.splice(pos, 0, id)
+    space.tabIds = rest
+    this.emit()
+  }
+
+  createFolder(spaceId, name, { live = false, links = [] } = {}) {
+    const space = this.spaces.find(s => s.id === spaceId) || this.activeSpace()
+    if (!space) return null
+    const folder = { id: shortId(), name: name || 'Pasta', collapsed: false, live, links }
+    space.folders.push(folder)
+    this.emit()
+    return folder
+  }
+
+  findFolder(folderId) {
+    for (const space of this.spaces) {
+      const folder = space.folders.find(f => f.id === folderId)
+      if (folder) return { space, folder }
+    }
+    return null
+  }
+
+  renameFolder(folderId, name) {
+    const found = this.findFolder(folderId)
+    if (found && name && name.trim()) {
+      found.folder.name = name.trim()
+      this.emit()
+    }
+  }
+
+  toggleFolderCollapse(folderId) {
+    const found = this.findFolder(folderId)
+    if (found) {
+      found.folder.collapsed = !found.folder.collapsed
+      this.emit()
+    }
+  }
+
+  setFolderLinks(folderId, links) {
+    const found = this.findFolder(folderId)
+    if (found && Array.isArray(links)) {
+      found.folder.links = links.slice(0, 100)
+      found.folder.live = true
+      this.emit()
+    }
+  }
+
+  deleteFolder(folderId, { closeTabs = false } = {}) {
+    const found = this.findFolder(folderId)
+    if (!found) return
+    const { space, folder } = found
+    for (const id of [...space.tabIds]) {
+      const tab = this.tabs.get(id)
+      if (tab && tab.folderId === folderId) {
+        if (closeTabs) this.closeTab(id)
+        else tab.folderId = null
+      }
+    }
+    space.folders = space.folders.filter(f => f.id !== folderId)
+    this.emit()
+  }
+
+  moveTabToFolder(tabId, folderId) {
+    const tab = this.tabs.get(tabId)
+    if (!tab) return
+    if (folderId) {
+      const found = this.findFolder(folderId)
+      if (!found || found.space.id !== tab.spaceId) return
+      tab.pinned = false
+    }
+    tab.folderId = folderId
     this.emit()
   }
 
@@ -347,11 +587,14 @@ class TabManager {
     this.activateSpace(this.spaces[next].id)
   }
 
-  createSpace(name, color) {
+  createSpace(name, color, icon) {
     const space = {
       id: shortId(),
       name: name || `Espaco ${this.spaces.length + 1}`,
       color: color || SPACE_COLORS[this.spaces.length % SPACE_COLORS.length],
+      icon: icon || SPACE_ICONS[this.spaces.length % SPACE_ICONS.length],
+      folders: [],
+      archived: [],
       tabIds: [],
       activeTabId: null
     }
@@ -376,27 +619,25 @@ class TabManager {
     }
   }
 
+  setSpaceIcon(id, icon) {
+    const space = this.spaces.find(s => s.id === id)
+    if (space) {
+      space.icon = icon
+      this.emit()
+    }
+  }
+
   deleteSpace(id) {
     if (this.spaces.length < 2) return
     const space = this.spaces.find(s => s.id === id)
     if (!space) return
-    for (const tabId of [...space.tabIds]) this.closeSilently(tabId)
+    for (const tabId of [...space.tabIds]) {
+      const tab = this.tabs.get(tabId)
+      if (tab) this.removeTab(tab, { destroy: true })
+    }
     this.spaces = this.spaces.filter(s => s.id !== id)
     if (this.activeSpaceId === id) this.activateSpace(this.spaces[0].id)
     else this.emit()
-  }
-
-  closeSilently(id) {
-    const tab = this.tabs.get(id)
-    if (!tab) return
-    if (tab.view) {
-      if (this.attachedView === tab.view) {
-        this.win.contentView.removeChildView(tab.view)
-        this.attachedView = null
-      }
-      try { tab.view.webContents.close() } catch {}
-    }
-    this.tabs.delete(id)
   }
 
   navigate(id, url) {
@@ -405,6 +646,13 @@ class TabManager {
     tab.url = url
     this.ensureView(tab)
     tab.view.webContents.loadURL(url).catch(() => {})
+    this.emit()
+  }
+
+  agentPulse(id) {
+    const tab = this.tabs.get(id)
+    if (!tab) return
+    tab.agentUntil = Date.now() + 4000
     this.emit()
   }
 
@@ -449,20 +697,8 @@ class TabManager {
     this.emit()
   }
 
-  layout() {
-    const [w, h] = this.win.getContentSize()
-    const x = this.sidebarOpen ? SIDEBAR_WIDTH : PAD
-    this.contentBounds = {
-      x,
-      y: PAD,
-      width: Math.max(0, w - x - PAD),
-      height: Math.max(0, h - PAD * 2)
-    }
-    if (this.attachedView) this.attachedView.setBounds(this.contentBounds)
-  }
-
   recordVisit(url, title) {
-    if (!url || isNewtab(url) || url.startsWith('devtools://') || url.startsWith('about:')) return
+    if (!url || url.startsWith('file://') || url.startsWith('devtools://') || url.startsWith('about:')) return
     const now = Date.now()
     const existing = this.history.find(h => h.url === url)
     if (existing) {
@@ -475,19 +711,30 @@ class TabManager {
     }
   }
 
+  destroy() {
+    for (const tab of this.tabs.values()) {
+      if (tab.view) {
+        try { tab.view.webContents.close() } catch {}
+      }
+    }
+    this.tabs.clear()
+  }
+
   serialize() {
     return {
       sidebarOpen: this.sidebarOpen,
       activeSpaceId: this.activeSpaceId,
-      history: this.history.slice(0, 3000),
       spaces: this.spaces.map(s => ({
         id: s.id,
         name: s.name,
         color: s.color,
+        icon: s.icon,
+        folders: s.folders,
+        archived: s.archived,
         activeTabId: s.activeTabId,
         tabs: s.tabIds.map(id => {
           const t = this.tabs.get(id)
-          return t ? { id: t.id, url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned } : null
+          return t ? { id: t.id, url: t.url, title: t.title, favicon: t.favicon, pinned: t.pinned, folderId: t.folderId } : null
         }).filter(Boolean)
       }))
     }
@@ -495,33 +742,40 @@ class TabManager {
 
   uiState() {
     const active = this.activeTab()
+    const now = Date.now()
+    const tabInfo = t => ({
+      id: t.id,
+      title: t.title,
+      url: t.url,
+      host: hostOf(t.url),
+      favicon: t.favicon,
+      pinned: t.pinned,
+      folderId: t.folderId,
+      loading: t.loading,
+      agentActive: now < t.agentUntil,
+      active: this.spaceOf(t) && this.spaceOf(t).activeTabId === t.id
+    })
     return {
       sidebarOpen: this.sidebarOpen,
       activeSpaceId: this.activeSpaceId,
+      split: this.split,
       spaces: this.spaces.map(s => ({
         id: s.id,
         name: s.name,
         color: s.color,
+        icon: s.icon,
         active: s.id === this.activeSpaceId,
+        archivedCount: s.archived.length,
+        folders: s.folders.map(f => ({ id: f.id, name: f.name, collapsed: f.collapsed, live: f.live, links: f.links })),
         tabs: s.tabIds.map(id => {
           const t = this.tabs.get(id)
-          if (!t) return null
-          return {
-            id: t.id,
-            title: isNewtab(t.url) ? 'Nova aba' : t.title,
-            url: isNewtab(t.url) ? '' : t.url,
-            host: isNewtab(t.url) ? '' : hostOf(t.url),
-            favicon: t.favicon,
-            pinned: t.pinned,
-            loading: t.loading,
-            active: s.activeTabId === t.id
-          }
+          return t ? tabInfo(t) : null
         }).filter(Boolean)
       })),
       active: active ? {
         id: active.id,
-        url: isNewtab(active.url) ? '' : active.url,
-        host: isNewtab(active.url) ? '' : hostOf(active.url),
+        url: active.url,
+        host: hostOf(active.url),
         secure: (active.url || '').startsWith('https://'),
         loading: active.loading,
         canGoBack: this.canGoBack(active),
@@ -538,4 +792,4 @@ class TabManager {
   }
 }
 
-module.exports = { TabManager, NEWTAB_URL, SPACE_COLORS, SIDEBAR_WIDTH }
+module.exports = { TabManager, SPACE_COLORS, SPACE_ICONS, SIDEBAR_WIDTH }

@@ -6,7 +6,6 @@ const os = require('os')
 function isUrlish(q) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(q)) return true
   if (/^localhost(:\d+)?(\/|$)/.test(q)) return true
-  if (/^[\d.]+(:\d+)?(\/|$)/.test(q) && q.split('.').length === 4) return true
   if (!q.includes(' ') && q.includes('.')) return true
   return false
 }
@@ -40,20 +39,30 @@ function score(query, text) {
 }
 
 class PaletteController {
-  constructor(win, tabs) {
+  constructor(win, tabs, ctx) {
     this.win = win
     this.tabs = tabs
+    this.ctx = ctx
     this.view = null
     this.visible = false
     this.mode = 'default'
   }
 
   actions() {
+    const split = !!this.tabs.split
     return [
-      { id: 'new-tab', title: 'Nova aba', hint: 'Cmd T' },
-      { id: 'close-tab', title: 'Fechar aba', hint: 'Cmd W' },
+      { id: 'pin-toggle', title: 'Fixar/desafixar como favorito', hint: 'Cmd D' },
+      { id: 'find', title: 'Buscar na pagina', hint: 'Cmd F' },
+      { id: 'split', title: split ? 'Trocar aba do split view' : 'Split view com...', hint: 'Cmd Shift D' },
+      ...(split ? [{ id: 'close-split', title: 'Fechar split view' }] : []),
+      { id: 'pip', title: 'Picture-in-Picture', hint: 'Cmd Shift P' },
+      { id: 'clean', title: 'Limpar abas do espaco', hint: 'Cmd Shift K' },
+      { id: 'archived', title: 'Ver abas arquivadas' },
+      { id: 'close-tab', title: 'Arquivar aba', hint: 'Cmd W' },
       { id: 'reopen-tab', title: 'Reabrir aba fechada', hint: 'Cmd Shift T' },
-      { id: 'new-space', title: 'Novo espaco' },
+      { id: 'new-window', title: 'Nova janela', hint: 'Cmd N' },
+      { id: 'new-space', title: 'Novo espaco', hint: 'Cmd Ctrl N' },
+      { id: 'new-folder', title: 'Nova pasta no espaco' },
       { id: 'toggle-sidebar', title: 'Mostrar/ocultar sidebar', hint: 'Cmd S' },
       { id: 'copy-url', title: 'Copiar URL da aba', hint: 'Cmd Shift C' },
       { id: 'screenshot', title: 'Capturar tela da aba' },
@@ -88,9 +97,16 @@ class PaletteController {
     this.layout()
     const active = this.tabs.activeTab()
     const space = this.tabs.activeSpace()
+    const placeholders = {
+      default: 'Buscar, abrir URL ou executar acao...',
+      url: 'Abrir URL nesta aba...',
+      split: 'Escolher aba para o split view...',
+      archived: 'Buscar nas abas arquivadas...'
+    }
     this.view.webContents.send('palette:open', {
       mode,
-      prefill: mode === 'url' && active && !active.url.includes('newtab.html') ? active.url : '',
+      placeholder: placeholders[mode] || placeholders.default,
+      prefill: mode === 'url' && active ? active.url : '',
       color: space ? space.color : '#8B5CF6'
     })
     this.view.webContents.focus()
@@ -113,6 +129,36 @@ class PaletteController {
 
   results(query) {
     const q = (query || '').trim()
+    if (this.mode === 'split') return this.splitResults(q)
+    if (this.mode === 'archived') return this.archivedResults(q)
+    return this.defaultResults(q)
+  }
+
+  splitResults(q) {
+    const space = this.tabs.activeSpace()
+    const active = this.tabs.activeTab()
+    if (!space) return []
+    return space.tabIds
+      .map(id => this.tabs.tabs.get(id))
+      .filter(t => t && (!active || t.id !== active.id))
+      .filter(t => !q || score(q, t.title) > 20 || score(q, t.url) > 20)
+      .slice(0, 12)
+      .map(t => ({ type: 'split-with', id: t.id, title: t.title, subtitle: t.url, favicon: t.favicon, kind: 'tab' }))
+  }
+
+  archivedResults(q) {
+    const items = []
+    for (const space of this.tabs.spaces) {
+      space.archived.forEach((a, index) => {
+        if (!q || score(q, a.title) > 20 || score(q, a.url) > 20) {
+          items.push({ type: 'archived', spaceId: space.id, index, title: a.title, subtitle: `${space.name} - ${a.url}`, favicon: a.favicon, kind: 'history' })
+        }
+      })
+    }
+    return items.slice(0, 14)
+  }
+
+  defaultResults(q) {
     const items = []
     const openUrls = new Set()
     const allTabs = []
@@ -162,17 +208,24 @@ class PaletteController {
         .sort((a, b) => b.s - a.s)
         .slice(0, 6)
       items.push(...histMatches.map(x => x.item))
+
+      const archMatches = []
+      for (const space of this.tabs.spaces) {
+        space.archived.forEach((a, index) => {
+          const s = Math.max(score(q, a.title), score(q, a.url))
+          if (s > 30) archMatches.push({ s, item: { type: 'archived', spaceId: space.id, index, title: a.title, subtitle: `Arquivada - ${space.name}`, favicon: a.favicon, kind: 'history' } })
+        })
+      }
+      items.push(...archMatches.sort((a, b) => b.s - a.s).slice(0, 3).map(x => x.item))
     } else {
       const space = this.tabs.activeSpace()
       if (space) {
         for (const id of space.tabIds.slice(0, 6)) {
           const tab = this.tabs.tabs.get(id)
-          if (tab && !tab.url.includes('newtab.html')) {
-            items.push({ type: 'tab', id: tab.id, title: tab.title, subtitle: 'Aba aberta', favicon: tab.favicon, kind: 'tab' })
-          }
+          if (tab) items.push({ type: 'tab', id: tab.id, title: tab.title, subtitle: 'Aba aberta', favicon: tab.favicon, kind: 'tab' })
         }
       }
-      for (const a of this.actions().slice(0, 5)) {
+      for (const a of this.actions().slice(0, 6)) {
         items.push({ type: 'action', id: a.id, title: a.title, subtitle: a.hint || 'Acao', kind: 'action' })
       }
       for (const h of this.tabs.history.slice(0, 4)) {
@@ -188,10 +241,14 @@ class PaletteController {
     if (!item) return
     if (item.type === 'tab') {
       tabs.activateTab(item.id)
+    } else if (item.type === 'split-with') {
+      const active = tabs.activeTab()
+      if (active) tabs.openSplit(active.id, item.id)
+    } else if (item.type === 'archived') {
+      tabs.restoreArchived(item.spaceId, item.index)
     } else if (item.type === 'nav' || item.type === 'search' || item.type === 'history') {
       const active = tabs.activeTab()
       if (mode === 'url' && active) tabs.navigate(active.id, item.url)
-      else if (active && active.url && active.url.includes('newtab.html')) tabs.navigate(active.id, item.url)
       else tabs.createTab({ url: item.url, activate: true })
     } else if (item.type === 'action') {
       this.runAction(item.id)
@@ -202,17 +259,41 @@ class PaletteController {
     const tabs = this.tabs
     const active = tabs.activeTab()
     switch (id) {
-      case 'new-tab':
-        tabs.createTab({ activate: true })
+      case 'pin-toggle':
+        if (active) tabs.togglePin(active.id)
         break
+      case 'find':
+        if (this.ctx && this.ctx.find) this.ctx.find().open()
+        break
+      case 'split':
+        this.open('split')
+        return
+      case 'close-split':
+        tabs.closeSplit()
+        break
+      case 'pip':
+        tabs.togglePip()
+        break
+      case 'clean':
+        tabs.archiveAllUnpinned()
+        break
+      case 'archived':
+        this.open('archived')
+        return
       case 'close-tab':
-        if (active) tabs.closeTab(active.id)
+        if (active) tabs.archiveTab(active.id)
         break
       case 'reopen-tab':
         tabs.reopenClosed()
         break
+      case 'new-window':
+        if (this.ctx && this.ctx.newWindow) this.ctx.newWindow()
+        break
       case 'new-space':
         tabs.createSpace()
+        break
+      case 'new-folder':
+        tabs.createFolder(tabs.activeSpaceId)
         break
       case 'toggle-sidebar':
         tabs.toggleSidebar()
