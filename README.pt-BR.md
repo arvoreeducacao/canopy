@@ -102,6 +102,15 @@ Cold start (empacotado)   API pronta       ██████░░░░░░ 
 
 O custo por aba e dominado pelo site isolation do Chromium: cada iframe cross-origin (ads, principalmente) ganha processo proprio, entao 15 abas de noticia podem virar 70+ processos. Isso e a engine, nao o shell — como referencia, na mesma maquina o Arc estava em **~3,5 GB em 21 processos** com uma sessao normal. Um adblock instalado pelo suporte a extensoes achata essa curva mais que qualquer outra coisa.
 
+### Lado a lado
+
+Mesma maquina, mesmo dia, mesma metodologia — processo frio com profile existente, RSS agregado via `ps`, e os mesmos tres portais cheios de ads abertos em cada browser. O Chrome rodou com profile limpo dedicado e sem extensoes (o melhor cenario pra ele); ego lite e Arc eram sessoes vivas, entao so aparecem nas metricas que nao exigiam derruba-los.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/perf/benchmark-dark.png">
+  <img src="docs/perf/benchmark-light.png" alt="Benchmark: Galho vs Chrome vs ego lite — cold start 324 ms vs 533 ms, memoria em repouso 408 MB vs 845 MB, e as mesmas 3 abas pesadas custando 4,35–6,42 GB nos tres browsers" width="920">
+</picture>
+
 ## CLI
 
 ```
