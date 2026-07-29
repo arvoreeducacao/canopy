@@ -10,25 +10,47 @@
       background: transparent;
       cursor: col-resize;
       user-select: none;
+      overflow: hidden;
+    }
+
+    #ghost {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      margin-left: -1.5px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.35);
+      display: none;
+      pointer-events: none;
     }
   </style>
 </head>
 <body>
+  <div id="ghost"></div>
   <script>
-    let raf = null
+    const ghost = document.getElementById('ghost')
+    let lastX = null
+
     document.addEventListener('mousemove', e => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = null
-        window.galho.send('ui', { type: 'split:drag', x: e.clientX })
-      })
+      lastX = e.clientX
+      ghost.style.display = 'block'
+      ghost.style.left = e.clientX + 'px'
     })
-    const end = () => window.galho.send('ui', { type: 'split:dragend' })
-    document.addEventListener('mouseup', end)
-    document.addEventListener('mouseleave', end)
-    window.addEventListener('blur', end)
+
+    const end = apply => {
+      if (apply && lastX != null) {
+        window.galho.send('ui', { type: 'split:drag', x: lastX })
+      }
+      window.galho.send('ui', { type: 'split:dragend' })
+    }
+
+    document.addEventListener('mouseup', () => end(true))
+    document.addEventListener('mouseleave', () => end(true))
+    window.addEventListener('blur', () => end(false))
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') end()
+      if (e.key === 'Escape') end(false)
     })
   </script>
 </body>

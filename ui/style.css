@@ -1,27 +1,27 @@
 :root {
   --space-color: #8B5CF6;
-  --glass-top: color-mix(in srgb, var(--space-color) 55%, transparent);
-  --glass-bottom: color-mix(in srgb, var(--space-color) 38%, transparent);
+  --glass-top: color-mix(in srgb, var(--space-color) 26%, transparent);
+  --glass-bottom: color-mix(in srgb, var(--space-color) 15%, transparent);
   --bg-top: color-mix(in srgb, var(--space-color) 88%, #FFFFFF 12%);
   --bg-bottom: color-mix(in srgb, var(--space-color) 74%, #000000 26%);
-  --fg: rgba(255, 255, 255, 0.97);
-  --fg-dim: rgba(255, 255, 255, 0.72);
-  --hover: rgba(255, 255, 255, 0.14);
-  --active-bg: rgba(255, 255, 255, 0.26);
-  --chip-bg: rgba(255, 255, 255, 0.13);
-  --shadow: 0 1px 5px rgba(10, 5, 30, 0.18);
+  --fg: rgba(40, 35, 60, 0.95);
+  --fg-dim: rgba(40, 35, 60, 0.72);
+  --hover: rgba(255, 255, 255, 0.45);
+  --active-bg: rgba(255, 255, 255, 0.82);
+  --chip-bg: rgba(255, 255, 255, 0.5);
+  --shadow: 0 1px 4px rgba(20, 10, 50, 0.10);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --glass-top: color-mix(in srgb, var(--space-color) 42%, transparent);
-    --glass-bottom: color-mix(in srgb, var(--space-color) 26%, transparent);
-    --bg-top: color-mix(in srgb, var(--space-color) 72%, #14121C 28%);
-    --bg-bottom: color-mix(in srgb, var(--space-color) 46%, #14121C 54%);
-    --hover: rgba(255, 255, 255, 0.11);
-    --active-bg: rgba(255, 255, 255, 0.2);
-    --chip-bg: rgba(255, 255, 255, 0.1);
-    --shadow: 0 1px 5px rgba(0, 0, 0, 0.3);
+    --glass-top: color-mix(in srgb, var(--space-color) 24%, transparent);
+    --glass-bottom: color-mix(in srgb, var(--space-color) 13%, transparent);
+    --fg: rgba(240, 238, 250, 0.92);
+    --fg-dim: rgba(240, 238, 250, 0.66);
+    --hover: rgba(255, 255, 255, 0.09);
+    --active-bg: rgba(255, 255, 255, 0.16);
+    --chip-bg: rgba(255, 255, 255, 0.08);
+    --shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   }
 }
 
@@ -43,7 +43,12 @@ input:focus-visible,
   outline-offset: 1px;
 }
 
-html, body {
+html {
+  height: 100%;
+  background: transparent;
+}
+
+body {
   height: 100%;
   background: linear-gradient(172deg, var(--glass-top), var(--glass-bottom));
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -250,7 +255,7 @@ body.peek #empty-hint {
   width: 22px;
   height: 22px;
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.28);
+  background: color-mix(in srgb, var(--space-color) 55%, transparent);
   color: white;
   font-size: 12px;
   font-weight: 600;
@@ -318,7 +323,7 @@ body.peek #empty-hint {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.28);
+  background: color-mix(in srgb, var(--space-color) 55%, transparent);
   color: white;
   font-size: 9.5px;
   font-weight: 600;
@@ -409,12 +414,8 @@ body.peek #empty-hint {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--fg-dim);
   animation: agent-pulse 1.2s ease-in-out infinite;
-}
-
-.space-pill .space-icon {
-  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 #newtab-row {
@@ -606,12 +607,13 @@ body.peek #empty-hint {
   width: 3px;
   height: 34px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.35);
-  transition: background 0.15s, height 0.15s;
+  background: var(--fg-dim);
+  opacity: 0.5;
+  transition: opacity 0.15s, height 0.15s;
 }
 
 #split-divider:hover .grip {
-  background: rgba(255, 255, 255, 0.7);
+  opacity: 1;
   height: 52px;
 }
 

@@ -582,6 +582,9 @@ function startAgentApi(ctx) {
   if (process.platform !== 'win32') {
     try { fs.unlinkSync(socketPath) } catch {}
     unixServer = http.createServer(handler)
+    unixServer.on('error', err => {
+      console.error('agent api unix socket unavailable:', err.message)
+    })
     unixServer.listen(socketPath, () => {
       try { fs.chmodSync(socketPath, 0o600) } catch {}
     })
@@ -592,6 +595,9 @@ function startAgentApi(ctx) {
       return json(res, 401, { error: 'unauthorized' })
     }
     return handler(req, res)
+  })
+  tcpServer.on('error', err => {
+    console.error('agent api tcp port unavailable:', err.message)
   })
   tcpServer.listen(ctx.port, '127.0.0.1')
 
