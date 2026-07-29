@@ -100,6 +100,15 @@ Cold start (packaged)   API ready    ██████░░░░░░  316 m
 
 The per-tab cost is dominated by Chromium's site isolation: every cross-origin iframe (mostly ads) gets its own process, so 15 news tabs can mean 70+ processes. That is the engine, not the shell — for reference, on the same machine Arc was sitting at **~3.5 GB across 21 processes** with a regular session. An ad blocker installed through the extension support flattens that curve more than anything else.
 
+### Side by side
+
+Same machine, same day, same method — cold process with an existing profile, aggregate RSS via `ps`, and the same three ad-heavy portals opened in every browser. Chrome ran a dedicated clean profile with no extensions (its best case); ego lite and Arc were live sessions, so they only appear in the metrics that don't require tearing them down.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/perf/benchmark-dark.png">
+  <img src="docs/perf/benchmark-light.png" alt="Benchmark: Galho vs Chrome vs ego lite — cold start 324 ms vs 533 ms, memory at rest 408 MB vs 845 MB, and the same 3 heavy tabs costing 4.35–6.42 GB across all three browsers" width="920">
+</picture>
+
 ## CLI
 
 ```
