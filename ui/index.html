@@ -8,7 +8,7 @@
 <body>
   <div id="empty-hint">
     <svg viewBox="0 0 32 32" width="44" height="44"><path d="M16 28V14M16 14c0-5 3-9 9-10-1 6-4 9-9 10zM16 18c0-4-2.5-7-7-8 .8 4.6 3 7 7 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <div class="line"><span class="kbd">&#8984;T</span> pra abrir uma aba</div>
+    <div class="line"><span class="kbd">&#8984;T</span> <span id="empty-hint-label">to open a tab</span></div>
   </div>
   <div id="sidebar">
     <div id="titlebar"></div>
@@ -37,7 +37,7 @@
       <div id="tabs"></div>
       <div id="newtab-row">
         <svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        <span>Nova aba</span>
+        <span id="newtab-label">New tab</span>
         <span class="kbd">&#8984;T</span>
       </div>
     </div>
@@ -48,6 +48,7 @@
       </button>
     </div>
   </div>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

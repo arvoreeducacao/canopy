@@ -4,6 +4,9 @@ let editingSpaceId = null
 let editingFolderId = null
 let editingTabId = null
 
+const IS_PEEK = location.hash === '#peek'
+if (IS_PEEK) document.body.classList.add('peek')
+
 const el = id => document.getElementById(id)
 
 const SPACE_ICON_PATHS = {
@@ -148,16 +151,34 @@ function tabRow(tab, index, folderId) {
     item.appendChild(title)
   }
 
-  if (tab.agentActive) {
+  if (state.split && (state.split.mainId === tab.id || state.split.sideId === tab.id)) {
     const badge = document.createElement('div')
-    badge.className = 'agent-badge'
-    badge.title = 'Agente trabalhando nesta aba'
+    badge.className = 'split-badge'
+    badge.title = T('inSplit')
+    badge.innerHTML = '<svg viewBox="0 0 16 16" width="11" height="11"><rect x="2" y="3" width="5" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="3" width="5" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>'
     item.appendChild(badge)
   }
 
+  if (tab.agentActive) {
+    const badge = document.createElement('div')
+    badge.className = 'agent-badge'
+    badge.title = T('agentOnTab')
+    item.appendChild(badge)
+  }
+
+  const more = document.createElement('button')
+  more.className = 'more'
+  more.title = T('tabOptions')
+  more.innerHTML = '<svg viewBox="0 0 16 16" width="11" height="11"><circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/></svg>'
+  more.onclick = e => {
+    e.stopPropagation()
+    send('tab:context', { id: tab.id })
+  }
+  item.appendChild(more)
+
   const close = document.createElement('button')
   close.className = 'close'
-  close.title = 'Arquivar aba'
+  close.title = T('archiveTab')
   close.innerHTML = '<svg viewBox="0 0 16 16" width="10" height="10"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
   close.onclick = e => {
     e.stopPropagation()
@@ -318,6 +339,17 @@ function renderTabs(space) {
 
   const loose = space.tabs.filter(t => !t.pinned && !t.folderId)
   loose.forEach((tab, index) => container.appendChild(tabRow(tab, index, null)))
+
+  if (space.archivedCount > 0) {
+    const row = document.createElement('div')
+    row.id = 'archived-row'
+    row.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13"><rect x="2" y="3" width="12" height="3.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3.5 6.5V12a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6.5M6.5 9h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+    const label = document.createElement('span')
+    label.textContent = T('archived', space.archivedCount)
+    row.appendChild(label)
+    row.onclick = () => send('palette:open', { mode: 'archived' })
+    container.appendChild(row)
+  }
 }
 
 function renderSpaces() {
@@ -340,6 +372,13 @@ function renderSpaces() {
       iconWrap.appendChild(dot)
     }
     pill.appendChild(iconWrap)
+
+    if (space.agentActive && !space.active) {
+      const dot = document.createElement('div')
+      dot.className = 'agent-dot'
+      dot.title = T('agentOnSpace')
+      pill.appendChild(dot)
+    }
 
     if (editingSpaceId === space.id) {
       const input = document.createElement('input')
@@ -390,17 +429,27 @@ function render() {
   if (!space) return
 
   document.documentElement.style.setProperty('--space-color', space.color)
+  if (!IS_PEEK) document.body.classList.toggle('sidebar-closed', !state.sidebarOpen)
 
   const chip = el('urlchip')
   const chipText = el('urlchip-text')
   const lock = el('lock-icon')
-  if (state.active && state.active.host) {
+  if (state.split && space) {
+    const pair = [state.split.mainId, state.split.sideId]
+      .map(id => space.tabs.find(t => t.id === id))
+      .filter(Boolean)
+      .map(t => (t.host || '').replace(/^www\./, ''))
+      .filter(Boolean)
+    chip.classList.add('has-url')
+    chipText.textContent = pair.join('  +  ') || T('splitView')
+    lock.style.display = 'none'
+  } else if (state.active && state.active.host) {
     chip.classList.add('has-url')
     chipText.textContent = state.active.host.replace(/^www\./, '')
     lock.style.display = state.active.secure ? '' : 'none'
   } else {
     chip.classList.remove('has-url')
-    chipText.textContent = 'Buscar ou abrir URL...'
+    chipText.textContent = T('searchOrOpen')
     lock.style.display = 'none'
   }
 
@@ -444,5 +493,14 @@ el('clean-btn').onclick = () => {
 el('urlchip').onclick = () => send('palette:open', { mode: 'url' })
 el('newtab-row').onclick = () => send('palette:open', { mode: 'default' })
 el('add-space').onclick = () => send('space:new')
+
+el('newtab-label').textContent = T('newTab')
+el('empty-hint-label').textContent = T('emptyHint')
+el('urlchip').title = T('openUrlTip')
+el('nav-back').title = T('back')
+el('nav-forward').title = T('forward')
+el('nav-reload').title = T('reload')
+el('clean-btn').title = T('cleanTabs')
+el('add-space').title = T('newSpace')
 
 send('state:request')

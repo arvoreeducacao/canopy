@@ -1,5 +1,6 @@
 const http = require('http')
 const { session } = require('electron')
+const { t } = require('./i18n')
 
 const AGENT_SPACE = 'Agentes'
 const AGENT_COLOR = '#F59E0B'
@@ -20,43 +21,57 @@ function readBody(req) {
   })
 }
 
+const targetIdCache = new Map()
+
 async function targetIdOf(wc) {
+  const cached = targetIdCache.get(wc.id)
+  if (cached) return cached
   const attached = wc.debugger.isAttached()
   try {
     if (!attached) wc.debugger.attach('1.3')
     const { targetInfo } = await wc.debugger.sendCommand('Target.getTargetInfo')
     if (!attached) wc.debugger.detach()
+    if (targetInfo.targetId) {
+      targetIdCache.set(wc.id, targetInfo.targetId)
+      wc.once('destroyed', () => targetIdCache.delete(wc.id))
+    }
     return targetInfo.targetId
   } catch {
     return null
   }
 }
 
-const CURSOR_SETUP = `(() => {
+const cursorSetup = () => `(() => {
   if (window.__galhoCursor) return
   const cursor = document.createElement('div')
   cursor.id = '__galho_cursor'
-  cursor.style.cssText = 'position:fixed;z-index:2147483647;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(245,158,11,0.95) 0 35%,rgba(245,158,11,0.3) 70%,transparent);box-shadow:0 0 16px rgba(245,158,11,0.85);left:50%;top:40%;transition:left 0.4s cubic-bezier(0.2,0.7,0.3,1),top 0.4s cubic-bezier(0.2,0.7,0.3,1),opacity 0.3s;opacity:0'
+  cursor.style.cssText = 'position:fixed;z-index:2147483647;width:22px;height:22px;margin:-11px 0 0 -11px;pointer-events:none;left:50%;top:40%;transition:left 0.4s cubic-bezier(0.2,0.7,0.3,1),top 0.4s cubic-bezier(0.2,0.7,0.3,1),opacity 0.3s;opacity:0'
+  const ring = document.createElement('div')
+  ring.style.cssText = 'position:absolute;inset:-5px;border-radius:50%;background:conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6);filter:blur(5px);opacity:0.9;animation:__galho_spin 2.6s linear infinite'
+  const core = document.createElement('div')
+  core.style.cssText = 'position:absolute;inset:5px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.98) 0 40%,rgba(255,255,255,0.35) 75%,transparent)'
+  cursor.appendChild(ring)
+  cursor.appendChild(core)
   const veil = document.createElement('div')
   veil.id = '__galho_veil'
   veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;background-color:rgba(12,8,24,0.32);background-image:radial-gradient(rgba(255,255,255,0.10) 1px,transparent 1.4px);background-size:9px 9px;opacity:0;transition:opacity 0.5s'
   const glow = document.createElement('div')
   glow.id = '__galho_glow'
-  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;box-shadow:inset 0 0 0 3px rgba(245,158,11,0.55),inset 0 0 30px rgba(245,158,11,0.18);border-radius:8px;opacity:0;transition:opacity 0.4s'
+  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;box-shadow:inset 0 0 0 2.5px rgba(139,92,246,0.5),inset 0 0 44px rgba(20,184,166,0.16);border-radius:8px;opacity:0;transition:opacity 0.4s;animation:__galho_hue 9s linear infinite'
   const pill = document.createElement('div')
   pill.id = '__galho_pill'
-  pill.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:14px;background:rgba(22,20,32,0.92);backdrop-filter:blur(16px);box-shadow:0 12px 40px rgba(0,0,0,0.45);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 0.4s,transform 0.4s'
+  pill.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:15px;border:1px solid transparent;background:linear-gradient(rgba(22,20,32,0.93),rgba(22,20,32,0.93)) padding-box,conic-gradient(from 120deg,rgba(139,92,246,0.85),rgba(20,184,166,0.85),rgba(245,158,11,0.7),rgba(236,72,153,0.8),rgba(139,92,246,0.85)) border-box;backdrop-filter:blur(16px);box-shadow:0 12px 40px rgba(0,0,0,0.45);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 0.4s,transform 0.4s'
   const spinner = document.createElement('div')
-  spinner.style.cssText = 'width:14px;height:14px;border-radius:50%;border:2px solid rgba(245,158,11,0.9);border-top-color:transparent;animation:__galho_spin 0.9s linear infinite'
+  spinner.style.cssText = 'width:15px;height:15px;border-radius:50%;background:conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6);-webkit-mask:radial-gradient(circle,transparent 0 4.5px,black 5px);animation:__galho_spin 1.1s linear infinite'
   const styleEl = document.createElement('style')
-  styleEl.textContent = '@keyframes __galho_spin{to{transform:rotate(360deg)}}'
+  styleEl.textContent = '@keyframes __galho_spin{to{transform:rotate(360deg)}}@keyframes __galho_hue{to{filter:hue-rotate(360deg)}}'
   const textWrap = document.createElement('div')
   const labelEl = document.createElement('div')
   labelEl.style.cssText = 'font-size:13px;font-weight:600;color:rgba(250,248,255,0.95);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
-  labelEl.textContent = 'Agente'
+  labelEl.textContent = ${JSON.stringify(t('agentDefault'))}
   const subEl = document.createElement('div')
   subEl.style.cssText = 'font-size:11px;color:rgba(250,248,255,0.55)'
-  subEl.textContent = 'Agente no controle'
+  subEl.textContent = ${JSON.stringify(t('agentInControl'))}
   textWrap.appendChild(labelEl)
   textWrap.appendChild(subEl)
   const btn = (label, color, action) => {
@@ -74,8 +89,8 @@ const CURSOR_SETUP = `(() => {
   }
   pill.appendChild(spinner)
   pill.appendChild(textWrap)
-  pill.appendChild(btn('Assumir', 'rgba(250,248,255,0.95)', 'takeover'))
-  pill.appendChild(btn('Parar', '#F87171', 'stop'))
+  pill.appendChild(btn(${JSON.stringify(t('takeOver'))}, 'rgba(250,248,255,0.95)', 'takeover'))
+  pill.appendChild(btn(${JSON.stringify(t('stop'))}, '#F87171', 'stop'))
   if (document.documentElement) {
     document.documentElement.appendChild(styleEl)
     document.documentElement.appendChild(veil)
@@ -116,7 +131,7 @@ const CURSOR_SETUP = `(() => {
     },
     ripple(x, y) {
       const r = document.createElement('div')
-      r.style.cssText = 'position:fixed;z-index:2147483647;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;pointer-events:none;border:2.5px solid rgba(245,158,11,0.9);left:' + x + 'px;top:' + y + 'px;transform:scale(1);opacity:1;transition:transform 0.45s ease-out,opacity 0.45s ease-out'
+      r.style.cssText = 'position:fixed;z-index:2147483647;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;pointer-events:none;border:2.5px solid transparent;background:linear-gradient(transparent,transparent) padding-box,conic-gradient(from 0deg,#8B5CF6,#14B8A6,#F59E0B,#EC4899,#8B5CF6) border-box;left:' + x + 'px;top:' + y + 'px;transform:scale(1);opacity:1;transition:transform 0.45s ease-out,opacity 0.45s ease-out'
       document.documentElement.appendChild(r)
       requestAnimationFrame(() => {
         r.style.transform = 'scale(3.2)'
@@ -129,36 +144,43 @@ const CURSOR_SETUP = `(() => {
 
 async function agentCursor(wc, method, args = []) {
   try {
-    await wc.executeJavaScript(CURSOR_SETUP, true)
+    await wc.executeJavaScript(cursorSetup(), true)
     await wc.executeJavaScript(`window.__galhoCursor && window.__galhoCursor.${method}(${args.join(',')})`, true)
   } catch {}
 }
 
+async function cdpScreenshot(wc) {
+  const attached = wc.debugger.isAttached()
+  try {
+    if (!attached) wc.debugger.attach('1.3')
+    const { data } = await wc.debugger.sendCommand('Page.captureScreenshot', { format: 'png', fromSurface: false })
+    if (!attached) wc.debugger.detach()
+    return Buffer.from(data, 'base64')
+  } catch {
+    if (!attached && wc.debugger.isAttached()) {
+      try { wc.debugger.detach() } catch {}
+    }
+    return null
+  }
+}
+
 async function captureTab(tabs, tab) {
   const win = tabs.win
+  const wc = tab.view.webContents
   const wasAttached = tabs.attachedViews.includes(tab.view)
   if (!wasAttached) {
+    const png = await cdpScreenshot(wc)
+    if (png) return png
     tab.view.setBounds(tabs.contentBounds || { x: 0, y: 0, width: 1200, height: 800 })
     win.contentView.addChildView(tab.view, 0)
     await new Promise(r => setTimeout(r, 350))
   }
   let png = null
   try {
-    const image = await tab.view.webContents.capturePage()
+    const image = await wc.capturePage()
     if (!image.isEmpty()) png = image.toPNG()
   } catch {}
-  if (!png) {
-    const wc = tab.view.webContents
-    const attached = wc.debugger.isAttached()
-    try {
-      if (!attached) wc.debugger.attach('1.3')
-      const { data } = await wc.debugger.sendCommand('Page.captureScreenshot', { format: 'png', fromSurface: false })
-      png = Buffer.from(data, 'base64')
-    } catch {}
-    if (!attached && wc.debugger.isAttached()) {
-      try { wc.debugger.detach() } catch {}
-    }
-  }
+  if (!png) png = await cdpScreenshot(wc)
   if (!wasAttached) win.contentView.removeChildView(tab.view)
   return png
 }
@@ -387,7 +409,7 @@ function startAgentApi(ctx) {
         const { m, tab } = found
         const sub = parts[2]
         const wc = tab.view ? tab.view.webContents : null
-        const labelArg = label => [JSON.stringify(label || tab.agentLabel || 'Agente')]
+        const labelArg = label => [JSON.stringify(label || tab.agentLabel || t('agentDefault'))]
 
         if (req.method === 'DELETE' && !sub) {
           m.closeTab(tab.id)

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Erro ao carregar</title>
+  <style>
+    :root {
+      --bg1: #f4f1fb;
+      --bg2: #e9f4f1;
+      --fg: rgba(40, 35, 60, 0.9);
+      --fg-dim: rgba(40, 35, 60, 0.55);
+      --box: rgba(255, 255, 255, 0.75);
+      --border: rgba(120, 110, 150, 0.15);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg1: #1d1b26;
+        --bg2: #1a2320;
+        --fg: rgba(240, 238, 250, 0.92);
+        --fg-dim: rgba(240, 238, 250, 0.55);
+        --box: rgba(255, 255, 255, 0.07);
+        --border: rgba(255, 255, 255, 0.09);
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    }
+
+    body {
+      background: linear-gradient(135deg, var(--bg1), var(--bg2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--fg);
+    }
+
+    #card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      max-width: min(480px, 84vw);
+      text-align: center;
+      padding: 40px;
+      border-radius: 18px;
+      background: var(--box);
+      border: 1px solid var(--border);
+    }
+
+    #card svg {
+      color: var(--fg-dim);
+    }
+
+    h1 {
+      font-size: 17px;
+      font-weight: 650;
+    }
+
+    #url {
+      font-size: 13px;
+      color: var(--fg-dim);
+      word-break: break-all;
+      max-height: 40px;
+      overflow: hidden;
+    }
+
+    #detail {
+      font-size: 11.5px;
+      color: var(--fg-dim);
+      font-family: ui-monospace, monospace;
+    }
+
+    button {
+      margin-top: 8px;
+      border: none;
+      border-radius: 10px;
+      padding: 9px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      background: rgba(16, 185, 129, 0.18);
+      color: inherit;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: rgba(16, 185, 129, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div id="card">
+    <svg viewBox="0 0 32 32" width="40" height="40"><path d="M16 28V14M16 14c0-5 3-9 9-10-1 6-4 9-9 10zM16 18c0-4-2.5-7-7-8 .8 4.6 3 7 7 8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 27l20 .01" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/></svg>
+    <h1 id="error-title">This page failed to load</h1>
+    <div id="url"></div>
+    <div id="detail"></div>
+    <button id="retry">Try again</button>
+  </div>
+  <script src="i18n.js"></script>
+  <script>
+    document.getElementById('error-title').textContent = T('errorTitle')
+    document.getElementById('retry').textContent = T('retry')
+    const params = new URLSearchParams(location.search)
+    const url = params.get('u') || ''
+    document.getElementById('url').textContent = url
+    document.getElementById('detail').textContent = params.get('d') || ''
+    document.getElementById('retry').onclick = () => {
+      if (url) location.href = url
+    }
+  </script>
+</body>
+</html>

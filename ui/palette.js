@@ -114,18 +114,18 @@ document.getElementById('backdrop').addEventListener('mousedown', e => {
   if (e.target === e.currentTarget) close()
 })
 
-const MODE_LABELS = {
-  url: 'ABRIR AQUI',
-  split: 'SPLIT VIEW',
-  archived: 'ARQUIVADAS'
-}
+const MODE_LABELS = GALHO_LANG === 'pt'
+  ? { url: 'ABRIR AQUI', split: 'SPLIT VIEW', archived: 'ARQUIVADAS' }
+  : { url: 'OPEN HERE', split: 'SPLIT VIEW', archived: 'ARCHIVED' }
+
+input.placeholder = T('paletteDefault')
 
 window.galho.on('palette:open', data => {
   mode = data.mode || 'default'
   document.documentElement.style.setProperty('--space-color', data.color || '#8B5CF6')
   modeChip.style.display = MODE_LABELS[mode] ? '' : 'none'
   modeChip.textContent = MODE_LABELS[mode] || ''
-  input.placeholder = data.placeholder || 'Buscar, abrir URL ou executar acao...'
+  input.placeholder = data.placeholder || T('paletteDefault')
   input.value = data.prefill || ''
   input.focus()
   if (data.prefill) input.select()

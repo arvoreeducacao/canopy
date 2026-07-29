@@ -1,19 +1,21 @@
 const { Menu, app, clipboard } = require('electron')
+const { t } = require('./i18n')
 
 function buildMenu(ctx) {
-  const t = () => {
+  const t_ = t
+  const tabs = () => {
     const e = ctx.entry()
     return e && e.tabs
   }
-  const p = () => {
+  const palette = () => {
     const e = ctx.entry()
     return e && e.palette
   }
-  const f = () => {
+  const find = () => {
     const e = ctx.entry()
     return e && e.find
   }
-  const w = () => {
+  const win = () => {
     const e = ctx.entry()
     return e && e.win
   }
@@ -21,18 +23,18 @@ function buildMenu(ctx) {
   const spaceItems = []
   for (let i = 1; i <= 9; i++) {
     spaceItems.push({
-      label: `Espaco ${i}`,
+      label: t_('spaceN', i),
       accelerator: `Control+${i}`,
-      click: () => t() && t().activateSpaceAtIndex(i)
+      click: () => tabs() && tabs().activateSpaceAtIndex(i)
     })
   }
 
   const tabIndexItems = []
   for (let i = 1; i <= 9; i++) {
     tabIndexItems.push({
-      label: i === 9 ? 'Ultima aba' : `Aba ${i}`,
+      label: i === 9 ? t_('lastTab') : t_('tabN', i),
       accelerator: `CommandOrControl+${i}`,
-      click: () => t() && t().activateTabAtIndex(i)
+      click: () => tabs() && tabs().activateTabAtIndex(i)
     })
   }
 
@@ -40,97 +42,97 @@ function buildMenu(ctx) {
     ...(process.platform === 'darwin' ? [{
       label: app.name,
       submenu: [
-        { role: 'about', label: 'Sobre o Galho' },
+        { role: 'about', label: t_('about') },
         { type: 'separator' },
-        { role: 'hide', label: 'Ocultar Galho' },
+        { role: 'hide', label: t_('hide') },
         { role: 'hideOthers' },
         { role: 'unhide' },
         { type: 'separator' },
-        { role: 'quit', label: 'Sair do Galho' }
+        { role: 'quit', label: t_('quit') }
       ]
     }] : []),
     {
-      label: 'Arquivo',
+      label: t_('fileMenu'),
       submenu: [
-        { label: 'Nova aba...', accelerator: 'CommandOrControl+T', click: () => p() && p().open('default') },
-        { label: 'Abrir URL...', accelerator: 'CommandOrControl+L', click: () => p() && p().open('url') },
-        { label: 'Nova janela', accelerator: 'CommandOrControl+N', click: () => ctx.newWindow() },
+        { label: t_('newTab'), accelerator: 'CommandOrControl+T', click: () => palette() && palette().open('default') },
+        { label: t_('openUrl'), accelerator: 'CommandOrControl+L', click: () => palette() && palette().open('url') },
+        { label: t_('newWindow'), accelerator: 'CommandOrControl+N', click: () => ctx.newWindow() },
         { type: 'separator' },
-        { label: 'Arquivar aba', accelerator: 'CommandOrControl+W', click: () => { const tm = t(); if (tm) { const a = tm.activeTab(); if (a) tm.archiveTab(a.id) } } },
-        { label: 'Reabrir aba fechada', accelerator: 'CommandOrControl+Shift+T', click: () => t() && t().reopenClosed() },
-        { label: 'Limpar abas do espaco', accelerator: 'CommandOrControl+Shift+K', click: () => t() && t().archiveAllUnpinned() },
+        { label: t_('archiveTab'), accelerator: 'CommandOrControl+W', click: () => { const tm = tabs(); if (tm) { const a = tm.activeTab(); if (a) tm.archiveTab(a.id) } } },
+        { label: t_('reopenTab'), accelerator: 'CommandOrControl+Shift+T', click: () => tabs() && tabs().reopenClosed() },
+        { label: t_('cleanSpace'), accelerator: 'CommandOrControl+Shift+K', click: () => tabs() && tabs().archiveAllUnpinned() },
         { type: 'separator' },
-        { label: 'Novo espaco', accelerator: 'CommandOrControl+Control+N', click: () => t() && t().createSpace() }
+        { label: t_('newSpace'), accelerator: 'CommandOrControl+Control+N', click: () => tabs() && tabs().createSpace() }
       ]
     },
     {
-      label: 'Editar',
+      label: t_('editMenu'),
       submenu: [
-        { role: 'undo', label: 'Desfazer' },
-        { role: 'redo', label: 'Refazer' },
+        { role: 'undo', label: t_('undo') },
+        { role: 'redo', label: t_('redo') },
         { type: 'separator' },
-        { role: 'cut', label: 'Recortar' },
-        { role: 'copy', label: 'Copiar' },
-        { role: 'paste', label: 'Colar' },
-        { role: 'selectAll', label: 'Selecionar tudo' },
+        { role: 'cut', label: t_('cut') },
+        { role: 'copy', label: t_('copy') },
+        { role: 'paste', label: t_('paste') },
+        { role: 'selectAll', label: t_('selectAll') },
         { type: 'separator' },
-        { label: 'Copiar URL', accelerator: 'CommandOrControl+Shift+C', click: () => { const tm = t(); const a = tm && tm.activeTab(); if (a && a.url) clipboard.writeText(a.url) } },
-        { label: 'Buscar na pagina...', accelerator: 'CommandOrControl+F', click: () => f() && f().open() }
+        { label: t_('copyUrl'), accelerator: 'CommandOrControl+Shift+C', click: () => { const tm = tabs(); const a = tm && tm.activeTab(); if (a && a.url) clipboard.writeText(a.url) } },
+        { label: t_('findInPage'), accelerator: 'CommandOrControl+F', click: () => find() && find().open() }
       ]
     },
     {
-      label: 'Visualizar',
+      label: t_('viewMenu'),
       submenu: [
-        { label: 'Recarregar', accelerator: 'CommandOrControl+R', click: () => t() && t().reload(false) },
-        { label: 'Recarregar sem cache', accelerator: 'CommandOrControl+Shift+R', click: () => t() && t().reload(true) },
+        { label: t_('reload'), accelerator: 'CommandOrControl+R', click: () => tabs() && tabs().reload(false) },
+        { label: t_('reloadNoCache'), accelerator: 'CommandOrControl+Shift+R', click: () => tabs() && tabs().reload(true) },
         { type: 'separator' },
-        { label: 'Mostrar/ocultar sidebar', accelerator: 'CommandOrControl+S', click: () => t() && t().toggleSidebar() },
-        { label: 'Fixar/desafixar como favorito', accelerator: 'CommandOrControl+D', click: () => t() && t().togglePin() },
-        { label: 'Picture-in-Picture', accelerator: 'CommandOrControl+Shift+P', click: () => t() && t().togglePip() },
+        { label: t_('toggleSidebar'), accelerator: 'CommandOrControl+S', click: () => tabs() && tabs().toggleSidebar() },
+        { label: t_('pinToggle'), accelerator: 'CommandOrControl+D', click: () => tabs() && tabs().togglePin() },
+        { label: t_('pip'), accelerator: 'CommandOrControl+Shift+P', click: () => tabs() && tabs().togglePip() },
         { type: 'separator' },
-        { label: 'Split view...', accelerator: 'CommandOrControl+Shift+D', click: () => { const tm = t(); if (!tm) return; tm.split ? tm.closeSplit() : p().open('split') } },
+        { label: t_('splitView'), accelerator: 'CommandOrControl+Shift+D', click: () => { const tm = tabs(); if (!tm) return; tm.split ? tm.closeSplit() : palette().open('split') } },
         { type: 'separator' },
-        { label: 'Aumentar zoom', accelerator: 'CommandOrControl+Plus', click: () => zoom(t(), 0.5) },
-        { label: 'Diminuir zoom', accelerator: 'CommandOrControl+-', click: () => zoom(t(), -0.5) },
-        { label: 'Zoom padrao', accelerator: 'CommandOrControl+0', click: () => zoom(t(), 0) },
+        { label: t_('zoomIn'), accelerator: 'CommandOrControl+Plus', click: () => zoom(tabs(), 0.5) },
+        { label: t_('zoomOut'), accelerator: 'CommandOrControl+-', click: () => zoom(tabs(), -0.5) },
+        { label: t_('zoomReset'), accelerator: 'CommandOrControl+0', click: () => zoom(tabs(), 0) },
         { type: 'separator' },
-        { label: 'DevTools da aba', accelerator: 'CommandOrControl+Alt+I', click: () => { const tm = t(); const a = tm && tm.activeTab(); if (a && a.view) a.view.webContents.openDevTools({ mode: 'detach' }) } },
-        { label: 'DevTools da interface', accelerator: 'CommandOrControl+Alt+Shift+I', click: () => w() && w().webContents.openDevTools({ mode: 'detach' }) },
+        { label: t_('devtoolsTab'), accelerator: 'CommandOrControl+Alt+I', click: () => { const tm = tabs(); const a = tm && tm.activeTab(); if (a && a.view) a.view.webContents.openDevTools({ mode: 'detach' }) } },
+        { label: t_('devtoolsUi'), accelerator: 'CommandOrControl+Alt+Shift+I', click: () => win() && win().webContents.openDevTools({ mode: 'detach' }) },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: 'Tela cheia' }
+        { role: 'togglefullscreen', label: t_('fullscreen') }
       ]
     },
     {
-      label: 'Historico',
+      label: t_('historyMenu'),
       submenu: [
-        { label: 'Voltar', accelerator: 'CommandOrControl+[', click: () => t() && t().goBack() },
-        { label: 'Avancar', accelerator: 'CommandOrControl+]', click: () => t() && t().goForward() },
+        { label: t_('back'), accelerator: 'CommandOrControl+[', click: () => tabs() && tabs().goBack() },
+        { label: t_('forward'), accelerator: 'CommandOrControl+]', click: () => tabs() && tabs().goForward() },
         { type: 'separator' },
-        { label: 'Abas arquivadas...', click: () => p() && p().open('archived') }
+        { label: t_('archivedTabs'), click: () => palette() && palette().open('archived') }
       ]
     },
     {
-      label: 'Abas',
+      label: t_('tabsMenu'),
       submenu: [
-        { label: 'Proxima aba', accelerator: 'Control+Tab', click: () => t() && t().cycleTab(1) },
-        { label: 'Aba anterior', accelerator: 'Control+Shift+Tab', click: () => t() && t().cycleTab(-1) },
+        { label: t_('nextTab'), accelerator: 'Control+Tab', click: () => tabs() && tabs().cycleTab(1) },
+        { label: t_('prevTab'), accelerator: 'Control+Shift+Tab', click: () => tabs() && tabs().cycleTab(-1) },
         { type: 'separator' },
         ...tabIndexItems
       ]
     },
     {
-      label: 'Espacos',
+      label: t_('spacesMenu'),
       submenu: [
-        { label: 'Proximo espaco', accelerator: 'CommandOrControl+Alt+Right', click: () => t() && t().cycleSpace(1) },
-        { label: 'Espaco anterior', accelerator: 'CommandOrControl+Alt+Left', click: () => t() && t().cycleSpace(-1) },
+        { label: t_('nextSpace'), accelerator: 'CommandOrControl+Alt+Right', click: () => tabs() && tabs().cycleSpace(1) },
+        { label: t_('prevSpace'), accelerator: 'CommandOrControl+Alt+Left', click: () => tabs() && tabs().cycleSpace(-1) },
         { type: 'separator' },
         ...spaceItems
       ]
     },
     {
-      label: 'Janela',
+      label: t_('windowMenu'),
       submenu: [
-        { role: 'minimize', label: 'Minimizar' },
+        { role: 'minimize', label: t_('minimize') },
         { role: 'zoom' },
         ...(process.platform === 'darwin' ? [{ role: 'front' }] : [{ role: 'close' }])
       ]

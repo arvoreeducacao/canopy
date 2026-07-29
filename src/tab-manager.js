@@ -1,6 +1,7 @@
-const { WebContentsView, Menu, clipboard } = require('electron')
+const { WebContentsView, Menu, clipboard, nativeTheme } = require('electron')
 const crypto = require('crypto')
 const path = require('path')
+const { t } = require('./i18n')
 
 const SPACE_COLORS = ['#8B5CF6', '#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#14B8A6', '#6366F1']
 const SPACE_ICONS = ['leaf', 'home', 'briefcase', 'robot', 'book', 'bolt', 'star', 'heart', 'code', 'rocket', 'music', 'chat']
@@ -40,7 +41,7 @@ class TabManager {
     for (const s of data.spaces || []) {
       const space = {
         id: s.id || shortId(),
-        name: s.name || 'Espaco',
+        name: s.name || t('spaceFallback'),
         color: s.color || SPACE_COLORS[0],
         icon: s.icon || null,
         archiveAfterMs: typeof s.archiveAfterMs === 'number' ? s.archiveAfterMs : null,
@@ -79,13 +80,16 @@ class TabManager {
 
     const wanted = data.activeSpaceId
     this.activeSpaceId = this.spaces.find(s => s.id === wanted) ? wanted : this.spaces[0].id
+  }
+
+  restoreActive() {
     this.activateSpace(this.activeSpaceId)
   }
 
   seed() {
     this.spaces.push(
-      { id: shortId(), name: 'Pessoal', color: '#8B5CF6', icon: 'leaf', folders: [], archived: [], tabIds: [], activeTabId: null },
-      { id: shortId(), name: 'Trabalho', color: '#14B8A6', icon: 'briefcase', folders: [], archived: [], tabIds: [], activeTabId: null }
+      { id: shortId(), name: t('seedPersonal'), color: '#8B5CF6', icon: 'leaf', archiveAfterMs: null, folders: [], archived: [], tabIds: [], activeTabId: null },
+      { id: shortId(), name: t('seedWork'), color: '#14B8A6', icon: 'briefcase', archiveAfterMs: null, folders: [], archived: [], tabIds: [], activeTabId: null }
     )
   }
 
@@ -133,7 +137,7 @@ class TabManager {
         preload: path.join(__dirname, 'tab-preload.js')
       }
     })
-    view.setBackgroundColor('#FFFFFFFF')
+    view.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1B1B22' : '#FFFFFF')
     if (typeof view.setBorderRadius === 'function') {
       try { view.setBorderRadius(10) } catch {}
     }
@@ -171,8 +175,18 @@ class TabManager {
     })
 
     wc.on('did-navigate', (_e, url) => {
+      if (url.includes('/ui/error.html')) return
       tab.url = url
       this.recordVisit(url, tab.title)
+      this.emit()
+    })
+
+    wc.on('did-fail-load', (_e, code, desc, failedUrl, isMainFrame) => {
+      if (!isMainFrame || code === -3 || !failedUrl || failedUrl.includes('/ui/error.html')) return
+      const errorUrl = 'file://' + path.join(__dirname, '..', 'ui', 'error.html') +
+        '?u=' + encodeURIComponent(failedUrl) + '&d=' + encodeURIComponent(desc || String(code))
+      wc.loadURL(errorUrl).catch(() => {})
+      tab.url = failedUrl
       this.emit()
     })
 
@@ -211,31 +225,31 @@ class TabManager {
     const template = []
     if (params.linkURL) {
       template.push(
-        { label: 'Abrir link em nova aba', click: () => this.createTab({ url: params.linkURL, spaceId: tab.spaceId, activate: false }) },
-        { label: 'Abrir link em split view', click: () => { const t = this.createTab({ url: params.linkURL, spaceId: tab.spaceId, activate: false }); this.openSplit(tab.id, t.id) } },
-        { label: 'Copiar link', click: () => clipboard.writeText(params.linkURL) },
+        { label: t('openLinkNewTab'), click: () => this.createTab({ url: params.linkURL, spaceId: tab.spaceId, activate: false }) },
+        { label: t('openLinkSplit'), click: () => { const created = this.createTab({ url: params.linkURL, spaceId: tab.spaceId, activate: false }); this.openSplit(tab.id, created.id) } },
+        { label: t('copyLink'), click: () => clipboard.writeText(params.linkURL) },
         { type: 'separator' }
       )
     }
     if (params.selectionText) {
       template.push(
-        { role: 'copy', label: 'Copiar' },
-        { label: `Buscar "${params.selectionText.slice(0, 30)}" no Google`, click: () => this.createTab({ url: 'https://www.google.com/search?q=' + encodeURIComponent(params.selectionText), spaceId: tab.spaceId }) },
+        { role: 'copy', label: t('copy') },
+        { label: t('searchSelection', params.selectionText.slice(0, 30)), click: () => this.createTab({ url: 'https://www.google.com/search?q=' + encodeURIComponent(params.selectionText), spaceId: tab.spaceId }) },
         { type: 'separator' }
       )
     }
     if (params.isEditable) {
-      template.push({ role: 'cut', label: 'Recortar' }, { role: 'copy', label: 'Copiar' }, { role: 'paste', label: 'Colar' }, { type: 'separator' })
+      template.push({ role: 'cut', label: t('cut') }, { role: 'copy', label: t('copy') }, { role: 'paste', label: t('paste') }, { type: 'separator' })
     }
     if (params.mediaType === 'video') {
-      template.push({ label: 'Picture-in-Picture', click: () => this.togglePip() }, { type: 'separator' })
+      template.push({ label: t('pip'), click: () => this.togglePip() }, { type: 'separator' })
     }
     template.push(
-      { label: 'Voltar', enabled: this.canGoBack(tab), click: () => this.goBack(tab.id) },
-      { label: 'Avancar', enabled: this.canGoForward(tab), click: () => this.goForward(tab.id) },
-      { label: 'Recarregar', click: () => wc.reload() },
+      { label: t('back'), enabled: this.canGoBack(tab), click: () => this.goBack(tab.id) },
+      { label: t('forward'), enabled: this.canGoForward(tab), click: () => this.goForward(tab.id) },
+      { label: t('reload'), click: () => wc.reload() },
       { type: 'separator' },
-      { label: 'Inspecionar elemento', click: () => wc.inspectElement(params.x, params.y) }
+      { label: t('inspect'), click: () => wc.inspectElement(params.x, params.y) }
     )
     const menu = Menu.buildFromTemplate(template)
     if (this.hooks.contextMenuItems) {
@@ -430,6 +444,22 @@ class TabManager {
     }
   }
 
+  sleepIdleViews(maxIdleMs = 45 * 60 * 1000) {
+    const now = Date.now()
+    for (const tab of this.tabs.values()) {
+      if (!tab.view || tab.pinned) continue
+      if (this.attachedViews.includes(tab.view)) continue
+      if (now - tab.lastActiveAt < maxIdleMs) continue
+      if (now < tab.agentUntil + 10 * 60 * 1000) continue
+      try {
+        if (tab.view.webContents.isCurrentlyAudible()) continue
+      } catch {}
+      try { tab.view.webContents.close() } catch {}
+      tab.view = null
+      tab.loading = false
+    }
+  }
+
   autoArchive() {
     const now = Date.now()
     for (const space of this.spaces) {
@@ -560,7 +590,7 @@ class TabManager {
   createFolder(spaceId, name, { live = false, links = [] } = {}) {
     const space = this.spaces.find(s => s.id === spaceId) || this.activeSpace()
     if (!space) return null
-    const folder = { id: shortId(), name: name || 'Pasta', collapsed: false, live, links }
+    const folder = { id: shortId(), name: name || t('folder'), collapsed: false, live, links }
     space.folders.push(folder)
     this.emit()
     return folder
@@ -652,11 +682,15 @@ class TabManager {
   }
 
   createSpace(name, color, icon) {
+    const usedColors = new Set(this.spaces.map(s => s.color))
+    const usedIcons = new Set(this.spaces.map(s => s.icon))
+    const freeColor = SPACE_COLORS.find(c => !usedColors.has(c)) || SPACE_COLORS[this.spaces.length % SPACE_COLORS.length]
+    const freeIcon = SPACE_ICONS.find(i => !usedIcons.has(i)) || SPACE_ICONS[this.spaces.length % SPACE_ICONS.length]
     const space = {
       id: shortId(),
-      name: name || `Espaco ${this.spaces.length + 1}`,
-      color: color || SPACE_COLORS[this.spaces.length % SPACE_COLORS.length],
-      icon: icon || SPACE_ICONS[this.spaces.length % SPACE_ICONS.length],
+      name: name || `${t('spaceFallback')} ${this.spaces.length + 1}`,
+      color: color || freeColor,
+      icon: icon || freeIcon,
       folders: [],
       archived: [],
       tabIds: [],
@@ -716,7 +750,7 @@ class TabManager {
   agentPulse(id, label) {
     const tab = this.tabs.get(id)
     if (!tab) return
-    tab.agentUntil = Date.now() + 4000
+    tab.agentUntil = Date.now() + 15000
     if (label) tab.agentLabel = label
     this.emit()
   }
@@ -758,8 +792,38 @@ class TabManager {
 
   toggleSidebar() {
     this.sidebarOpen = !this.sidebarOpen
-    this.layout()
+    this.animateLayout()
     this.emit()
+  }
+
+  animateLayout(duration = 190) {
+    clearInterval(this.animTimer)
+    const [w, h] = this.win.getContentSize()
+    const fromX = this.contentBounds ? this.contentBounds.x : (this.sidebarOpen ? PAD : SIDEBAR_WIDTH)
+    const toX = this.sidebarOpen ? SIDEBAR_WIDTH : PAD
+    if (fromX === toX) {
+      this.layout()
+      return
+    }
+    const start = Date.now()
+    this.animTimer = setInterval(() => {
+      const raw = Math.min(1, (Date.now() - start) / duration)
+      const eased = 1 - Math.pow(1 - raw, 3)
+      const x = Math.round(fromX + (toX - fromX) * eased)
+      this.contentBounds = { x, y: PAD, width: Math.max(0, w - x - PAD), height: Math.max(0, h - PAD * 2) }
+      const b = this.contentBounds
+      if (this.split && this.attachedViews.length === 2) {
+        const half = Math.floor((b.width - SPLIT_GAP) / 2)
+        this.attachedViews[0].setBounds({ x: b.x, y: b.y, width: half, height: b.height })
+        this.attachedViews[1].setBounds({ x: b.x + half + SPLIT_GAP, y: b.y, width: b.width - half - SPLIT_GAP, height: b.height })
+      } else if (this.attachedViews.length) {
+        this.attachedViews[0].setBounds(b)
+      }
+      if (raw >= 1) {
+        clearInterval(this.animTimer)
+        this.layout()
+      }
+    }, 16)
   }
 
   recordVisit(url, title) {
@@ -831,6 +895,10 @@ class TabManager {
         color: s.color,
         icon: s.icon,
         active: s.id === this.activeSpaceId,
+        agentActive: s.tabIds.some(id => {
+          const t = this.tabs.get(id)
+          return t && now < t.agentUntil
+        }),
         archivedCount: s.archived.length,
         folders: s.folders.map(f => ({ id: f.id, name: f.name, collapsed: f.collapsed, live: f.live, links: f.links })),
         tabs: s.tabIds.map(id => {

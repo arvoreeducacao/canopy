@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, session, Menu, clipboard, shell, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, session, Menu, clipboard, shell, Notification, dialog } = require('electron')
+const { t } = require('./i18n')
 const path = require('path')
 const fs = require('fs')
 const { ElectronChromeExtensions } = require('electron-chrome-extensions')
@@ -48,6 +49,7 @@ function openExternalUrl(url) {
 
 function findTabByWebContents(wc) {
   for (const entry of windows) {
+    if (!entry.tabs) continue
     for (const tab of entry.tabs.tabs.values()) {
       if (tab.view && tab.view.webContents === wc) return { entry, tab }
     }
@@ -57,13 +59,21 @@ function findTabByWebContents(wc) {
 
 const extensionHooks = {
   viewCreated(tab, win) {
-    if (extensions) extensions.addTab(tab.view.webContents, win)
+    try {
+      if (extensions) extensions.addTab(tab.view.webContents, win)
+    } catch {}
   },
   tabActivated(tab) {
-    if (extensions) extensions.selectTab(tab.view.webContents)
+    try {
+      if (extensions) extensions.selectTab(tab.view.webContents)
+    } catch {}
   },
   contextMenuItems(wc, params) {
-    return extensions ? extensions.getContextMenuItems(wc, params) : []
+    try {
+      return extensions ? extensions.getContextMenuItems(wc, params) : []
+    } catch {
+      return []
+    }
   }
 }
 
@@ -105,9 +115,42 @@ function entryFor(wc) {
   if (!wc) return windows[0]
   return windows.find(e =>
     e.win.webContents === wc ||
-    (e.palette.view && e.palette.view.webContents === wc) ||
-    (e.find.view && e.find.view.webContents === wc)
+    (e.palette && e.palette.view && e.palette.view.webContents === wc) ||
+    (e.find && e.find.view && e.find.view.webContents === wc) ||
+    (e.peekView && e.peekView.webContents === wc)
   )
+}
+
+function ensurePeek(entry) {
+  if (entry.peekView) return
+  const { WebContentsView } = require('electron')
+  entry.peekView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      transparent: true
+    }
+  })
+  entry.peekView.setBackgroundColor('#00000000')
+  entry.peekView.webContents.loadFile(path.join(__dirname, '..', 'ui', 'index.html'), { hash: 'peek' })
+  entry.peekView.webContents.on('did-finish-load', () => {
+    if (entry.tabs) entry.peekView.webContents.send('state', entry.tabs.uiState())
+  })
+}
+
+function showPeek(entry) {
+  if (entry.peekVisible || entry.tabs.sidebarOpen) return
+  ensurePeek(entry)
+  const [, h] = entry.win.getContentSize()
+  entry.peekView.setBounds({ x: 0, y: 0, width: 324, height: h })
+  entry.win.contentView.addChildView(entry.peekView)
+  entry.peekVisible = true
+  entry.peekView.webContents.send('state', entry.tabs.uiState())
+}
+
+function hidePeek(entry) {
+  if (!entry.peekVisible) return
+  entry.win.contentView.removeChildView(entry.peekView)
+  entry.peekVisible = false
 }
 
 function focusedEntry() {
@@ -134,14 +177,22 @@ function createWindow(winState = {}) {
   })
 
   win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'))
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    win.show()
+    setTimeout(() => {
+      if (!win.isDestroyed() && entry.tabs) entry.tabs.restoreActive()
+    }, 50)
+  })
 
   const entry = { win, tabs: null, palette: null, find: null }
   windows.push(entry)
 
   const pushState = () => {
     if (win.isDestroyed()) return
-    win.webContents.send('state', entry.tabs.uiState())
+    const state = entry.tabs.uiState()
+    win.webContents.send('state', state)
+    if (entry.peekView) entry.peekView.webContents.send('state', state)
+    if (entry.tabs.sidebarOpen && entry.peekVisible) hidePeek(entry)
     saveAll()
   }
   entry.pushState = pushState
@@ -190,13 +241,13 @@ function showTabContextMenu(entry, id) {
   const others = tabs.spaces.filter(s => s.id !== tab.spaceId)
   const active = tabs.activeTab()
   const template = [
-    { label: tab.pinned ? 'Desafixar' : 'Fixar como favorito', click: () => tabs.togglePin(id) },
-    { label: 'Renomear aba', click: () => entry.win.webContents.send('space:edit', { tabId: id }) },
-    ...(active && active.id !== id ? [{ label: 'Abrir em split view', click: () => tabs.openSplit(active.id, id) }] : []),
-    { label: 'Duplicar aba', click: () => tabs.duplicateTab(id) },
-    { label: 'Copiar URL', click: () => clipboard.writeText(tab.url) },
-    ...(space && space.folders.length || true ? [{
-      label: 'Mover para pasta',
+    { label: tab.pinned ? t('unpin') : t('pinFav'), click: () => tabs.togglePin(id) },
+    { label: t('renameTab'), click: () => entry.win.webContents.send('space:edit', { tabId: id }) },
+    ...(active && active.id !== id ? [{ label: t('openInSplit'), click: () => tabs.openSplit(active.id, id) }] : []),
+    { label: t('duplicateTab'), click: () => tabs.duplicateTab(id) },
+    { label: t('copyUrl'), click: () => clipboard.writeText(tab.url) },
+    {
+      label: t('moveToFolder'),
       submenu: [
         ...(space ? space.folders.map(f => ({
           label: f.name,
@@ -204,18 +255,18 @@ function showTabContextMenu(entry, id) {
           checked: tab.folderId === f.id,
           click: () => tabs.moveTabToFolder(id, f.id)
         })) : []),
-        { label: 'Nenhuma', type: 'radio', checked: !tab.folderId, click: () => tabs.moveTabToFolder(id, null) },
+        { label: t('noFolder'), type: 'radio', checked: !tab.folderId, click: () => tabs.moveTabToFolder(id, null) },
         { type: 'separator' },
-        { label: 'Nova pasta com esta aba', click: () => { const f = tabs.createFolder(tab.spaceId); if (f) tabs.moveTabToFolder(id, f.id) } }
+        { label: t('newFolderWithTab'), click: () => { const f = tabs.createFolder(tab.spaceId); if (f) tabs.moveTabToFolder(id, f.id) } }
       ]
-    }] : []),
+    },
     ...(others.length ? [{
-      label: 'Mover para espaco',
+      label: t('moveToSpace'),
       submenu: others.map(s => ({ label: s.name, click: () => tabs.moveTabToSpace(id, s.id) }))
     }] : []),
     { type: 'separator' },
-    { label: 'Arquivar aba', click: () => tabs.archiveTab(id) },
-    { label: 'Fechar aba', click: () => tabs.closeTab(id) }
+    { label: t('archiveTab'), click: () => tabs.archiveTab(id) },
+    { label: t('closeTab'), click: () => tabs.closeTab(id) }
   ]
   Menu.buildFromTemplate(template).popup({ window: entry.win })
 }
@@ -225,9 +276,9 @@ function showSpaceContextMenu(entry, id) {
   const space = tabs.spaces.find(s => s.id === id)
   if (!space) return
   const template = [
-    { label: 'Renomear', click: () => entry.win.webContents.send('space:edit', { id }) },
+    { label: t('rename'), click: () => entry.win.webContents.send('space:edit', { id }) },
     {
-      label: 'Icone',
+      label: t('icon'),
       submenu: SPACE_ICONS.map(icon => ({
         label: icon,
         type: 'radio',
@@ -236,7 +287,7 @@ function showSpaceContextMenu(entry, id) {
       }))
     },
     {
-      label: 'Cor',
+      label: t('color'),
       submenu: SPACE_COLORS.map(c => ({
         label: c,
         type: 'radio',
@@ -245,17 +296,34 @@ function showSpaceContextMenu(entry, id) {
       }))
     },
     {
-      label: 'Auto-archive',
+      label: t('autoArchive'),
       submenu: [
-        { label: '12 horas', type: 'radio', checked: !space.archiveAfterMs, click: () => tabs.setSpaceArchiveAfter(id, null) },
-        { label: '24 horas', type: 'radio', checked: space.archiveAfterMs === 86400000, click: () => tabs.setSpaceArchiveAfter(id, 86400000) },
-        { label: '7 dias', type: 'radio', checked: space.archiveAfterMs === 604800000, click: () => tabs.setSpaceArchiveAfter(id, 604800000) },
-        { label: 'Nunca', type: 'radio', checked: space.archiveAfterMs === 0, click: () => tabs.setSpaceArchiveAfter(id, 0) }
+        { label: t('hours12'), type: 'radio', checked: !space.archiveAfterMs, click: () => tabs.setSpaceArchiveAfter(id, null) },
+        { label: t('hours24'), type: 'radio', checked: space.archiveAfterMs === 86400000, click: () => tabs.setSpaceArchiveAfter(id, 86400000) },
+        { label: t('days7'), type: 'radio', checked: space.archiveAfterMs === 604800000, click: () => tabs.setSpaceArchiveAfter(id, 604800000) },
+        { label: t('never'), type: 'radio', checked: space.archiveAfterMs === 0, click: () => tabs.setSpaceArchiveAfter(id, 0) }
       ]
     },
     { type: 'separator' },
-    { label: 'Limpar abas', click: () => tabs.archiveAllUnpinned(id) },
-    { label: 'Excluir espaco', enabled: tabs.spaces.length > 1, click: () => tabs.deleteSpace(id) }
+    { label: t('cleanTabs'), click: () => tabs.archiveAllUnpinned(id) },
+    {
+      label: t('deleteSpace'),
+      enabled: tabs.spaces.length > 1,
+      click: () => {
+        const n = space.tabIds.length
+        if (n > 0) {
+          const choice = dialog.showMessageBoxSync(entry.win, {
+            type: 'warning',
+            buttons: [t('deleteConfirmYes'), t('cancel')],
+            defaultId: 1,
+            cancelId: 1,
+            message: t('deleteSpaceConfirm', space.name, n)
+          })
+          if (choice !== 0) return
+        }
+        tabs.deleteSpace(id)
+      }
+    }
   ]
   Menu.buildFromTemplate(template).popup({ window: entry.win })
 }
@@ -265,11 +333,11 @@ function showFolderContextMenu(entry, id) {
   const found = tabs.findFolder(id)
   if (!found) return
   const template = [
-    { label: 'Renomear', click: () => entry.win.webContents.send('space:edit', { folderId: id }) },
-    { label: found.folder.collapsed ? 'Expandir' : 'Recolher', click: () => tabs.toggleFolderCollapse(id) },
+    { label: t('rename'), click: () => entry.win.webContents.send('space:edit', { folderId: id }) },
+    { label: found.folder.collapsed ? t('expand') : t('collapse'), click: () => tabs.toggleFolderCollapse(id) },
     { type: 'separator' },
-    { label: 'Dissolver pasta', click: () => tabs.deleteFolder(id, { closeTabs: false }) },
-    { label: 'Fechar pasta e abas', click: () => tabs.deleteFolder(id, { closeTabs: true }) }
+    { label: t('dissolveFolder'), click: () => tabs.deleteFolder(id, { closeTabs: false }) },
+    { label: t('closeFolderTabs'), click: () => tabs.deleteFolder(id, { closeTabs: true }) }
   ]
   Menu.buildFromTemplate(template).popup({ window: entry.win })
 }
@@ -300,6 +368,8 @@ function wireIpc() {
       case 'nav:forward': tabs.goForward(); break
       case 'nav:reload': tabs.reload(); break
       case 'palette:open': entry.palette.open(msg.mode || 'default'); break
+      case 'peek:show': showPeek(entry); break
+      case 'peek:hide': hidePeek(entry); break
       case 'state:request': entry.pushState(); break
     }
   })
@@ -368,7 +438,7 @@ app.whenReady().then(() => {
       record.state = state
       record.bytes = item.getReceivedBytes()
       if (state === 'completed' && Notification.isSupported()) {
-        const n = new Notification({ title: 'Download concluido', body: record.filename })
+        const n = new Notification({ title: t('downloadDone'), body: record.filename })
         n.on('click', () => shell.showItemInFolder(file))
         n.show()
       }
@@ -389,7 +459,7 @@ app.whenReady().then(() => {
     callback(allowed.includes(permission))
   })
 
-  extensions = new ElectronChromeExtensions({
+  if (!process.env.GALHO_NO_EXT) extensions = new ElectronChromeExtensions({
     license: 'GPL-3.0',
     session: session.defaultSession,
     async createTab(details) {
@@ -415,19 +485,20 @@ app.whenReady().then(() => {
       win.close()
     }
   })
-  ElectronChromeExtensions.handleCRXProtocol(session.defaultSession)
+  if (!process.env.GALHO_NO_EXT) ElectronChromeExtensions.handleCRXProtocol(session.defaultSession)
 
   wireIpc()
 
-  installChromeWebStore({ session: session.defaultSession })
-    .catch(() => {})
-    .then(() => {
-      for (const winState of data.windows || [{}]) {
-        createWindow(winState)
-      }
-      if (!windows.length) createWindow()
-      while (pendingUrls.length) openExternalUrl(pendingUrls.shift())
-    })
+  const webstoreReady = process.env.GALHO_NO_EXT
+    ? Promise.resolve()
+    : installChromeWebStore({ session: session.defaultSession }).catch(() => {})
+  Promise.race([webstoreReady, new Promise(r => setTimeout(r, 1500))]).then(() => {
+    for (const winState of data.windows || [{}]) {
+      createWindow(winState)
+    }
+    if (!windows.length) createWindow()
+    while (pendingUrls.length) openExternalUrl(pendingUrls.shift())
+  })
 
   buildMenu({
     entry: () => focusedEntry(),
@@ -445,8 +516,37 @@ app.whenReady().then(() => {
   })
 
   setInterval(() => {
-    for (const entry of windows) entry.tabs.autoArchive()
+    for (const entry of windows) {
+      if (!entry.tabs) continue
+      entry.tabs.autoArchive()
+      entry.tabs.sleepIdleViews()
+    }
   }, 10 * 60 * 1000)
+
+  const { screen } = require('electron')
+  setInterval(() => {
+    const focused = BrowserWindow.getFocusedWindow()
+    for (const entry of windows) {
+      if (!entry.tabs || entry.tabs.sidebarOpen) {
+        if (entry.peekVisible) hidePeek(entry)
+        continue
+      }
+      if (entry.win !== focused) {
+        if (entry.peekVisible) hidePeek(entry)
+        continue
+      }
+      const cursor = screen.getCursorScreenPoint()
+      const bounds = entry.win.getBounds()
+      const inWindow = cursor.x >= bounds.x && cursor.x <= bounds.x + bounds.width &&
+        cursor.y >= bounds.y && cursor.y <= bounds.y + bounds.height
+      const relX = cursor.x - bounds.x
+      if (!entry.peekVisible && inWindow && relX <= 4) {
+        showPeek(entry)
+      } else if (entry.peekVisible && (!inWindow || relX > 340)) {
+        hidePeek(entry)
+      }
+    }
+  }, 130)
 })
 
 app.on('open-url', (e, url) => {

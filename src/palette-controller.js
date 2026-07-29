@@ -2,6 +2,7 @@ const { WebContentsView, clipboard, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const { t } = require('./i18n')
 
 function isUrlish(q) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(q)) return true
@@ -62,27 +63,27 @@ class PaletteController {
   actions() {
     const split = !!this.tabs.split
     return [
-      { id: 'pin-toggle', title: 'Fixar/desafixar como favorito', hint: 'Cmd D' },
-      { id: 'find', title: 'Buscar na pagina', hint: 'Cmd F' },
-      { id: 'split', title: split ? 'Trocar aba do split view' : 'Split view com...', hint: 'Cmd Shift D' },
-      ...(split ? [{ id: 'close-split', title: 'Fechar split view' }] : []),
-      { id: 'pip', title: 'Picture-in-Picture', hint: 'Cmd Shift P' },
-      { id: 'clean', title: 'Limpar abas do espaco', hint: 'Cmd Shift K' },
-      { id: 'archived', title: 'Ver abas arquivadas' },
-      { id: 'close-tab', title: 'Arquivar aba', hint: 'Cmd W' },
-      { id: 'reopen-tab', title: 'Reabrir aba fechada', hint: 'Cmd Shift T' },
-      { id: 'new-window', title: 'Nova janela', hint: 'Cmd N' },
-      { id: 'new-space', title: 'Novo espaco', hint: 'Cmd Ctrl N' },
-      { id: 'new-folder', title: 'Nova pasta no espaco' },
-      { id: 'toggle-sidebar', title: 'Mostrar/ocultar sidebar', hint: 'Cmd S' },
-      { id: 'copy-url', title: 'Copiar URL da aba', hint: 'Cmd Shift C' },
-      { id: 'screenshot', title: 'Capturar tela da aba' },
-      { id: 'webstore', title: 'Instalar extensoes (Chrome Web Store)' },
-      { id: 'downloads', title: 'Abrir pasta de downloads' },
-      { id: 'default-browser', title: 'Tornar navegador padrao' },
-      { id: 'devtools', title: 'Abrir DevTools', hint: 'Cmd Alt I' },
-      { id: 'reload', title: 'Recarregar pagina', hint: 'Cmd R' },
-      { id: 'clear-history', title: 'Limpar historico' }
+      { id: 'pin-toggle', title: t('pinToggle'), hint: 'Cmd D' },
+      { id: 'find', title: t('actFind'), hint: 'Cmd F' },
+      { id: 'split', title: split ? t('actSplitSwap') : t('actSplit'), hint: 'Cmd Shift D' },
+      ...(split ? [{ id: 'close-split', title: t('actCloseSplit') }] : []),
+      { id: 'pip', title: t('pip'), hint: 'Cmd Shift P' },
+      { id: 'clean', title: t('actClean'), hint: 'Cmd Shift K' },
+      { id: 'archived', title: t('actArchived') },
+      { id: 'close-tab', title: t('archiveTab'), hint: 'Cmd W' },
+      { id: 'reopen-tab', title: t('reopenTab'), hint: 'Cmd Shift T' },
+      { id: 'new-window', title: t('newWindow'), hint: 'Cmd N' },
+      { id: 'new-space', title: t('newSpace'), hint: 'Cmd Ctrl N' },
+      { id: 'new-folder', title: t('actNewFolder') },
+      { id: 'toggle-sidebar', title: t('toggleSidebar'), hint: 'Cmd S' },
+      { id: 'copy-url', title: t('copyUrl'), hint: 'Cmd Shift C' },
+      { id: 'screenshot', title: t('actScreenshot') },
+      { id: 'webstore', title: t('actWebstore') },
+      { id: 'downloads', title: t('actDownloads') },
+      { id: 'default-browser', title: t('actDefaultBrowser') },
+      { id: 'devtools', title: t('actDevtools'), hint: 'Cmd Alt I' },
+      { id: 'reload', title: t('actReloadPage'), hint: 'Cmd R' },
+      { id: 'clear-history', title: t('actClearHistory') }
     ]
   }
 
@@ -112,10 +113,10 @@ class PaletteController {
     const active = this.tabs.activeTab()
     const space = this.tabs.activeSpace()
     const placeholders = {
-      default: 'Buscar, abrir URL ou executar acao...',
-      url: 'Abrir URL nesta aba...',
-      split: 'Escolher aba para o split view...',
-      archived: 'Buscar nas abas arquivadas...'
+      default: t('paletteDefault'),
+      url: t('paletteUrl'),
+      split: t('paletteSplit'),
+      archived: t('paletteArchived')
     }
     this.view.webContents.send('palette:open', {
       mode,
@@ -186,33 +187,38 @@ class PaletteController {
     }
 
     if (q) {
+      const actionMatches = this.actions()
+        .map(a => ({ s: score(q, a.title), item: { type: 'action', id: a.id, title: a.title, subtitle: a.hint || t('actionSubtitle'), kind: 'action' } }))
+        .filter(x => x.s > 20)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 4)
+
+      if (actionMatches[0] && actionMatches[0].s >= 80) {
+        items.push(actionMatches.shift().item)
+      }
+
       const engineMatch = q.match(/^(\S+)\s+(.+)$/)
       const engine = engineMatch && SITE_ENGINES[engineMatch[1].toLowerCase()]
       if (engine) {
-        items.push({ type: 'search', title: `Buscar "${engineMatch[2]}" no ${engine.name}`, url: engine.url.replace('%s', encodeURIComponent(engineMatch[2])), kind: 'search' })
+        items.push({ type: 'search', title: t('searchOn', engineMatch[2], engine.name), url: engine.url.replace('%s', encodeURIComponent(engineMatch[2])), kind: 'search' })
       }
       if (isUrlish(q)) {
-        items.push({ type: 'nav', title: q, subtitle: 'Abrir', url: normalizeUrl(q), kind: 'globe' })
-        items.push({ type: 'search', title: `Buscar "${q}" no Google`, url: searchUrl(q), kind: 'search' })
+        items.push({ type: 'nav', title: q, subtitle: t('openSubtitle'), url: normalizeUrl(q), kind: 'globe' })
+        items.push({ type: 'search', title: t('searchOn', q, 'Google'), url: searchUrl(q), kind: 'search' })
       } else if (!engine) {
-        items.push({ type: 'search', title: `Buscar "${q}" no Google`, url: searchUrl(q), kind: 'search' })
+        items.push({ type: 'search', title: t('searchOn', q, 'Google'), url: searchUrl(q), kind: 'search' })
       }
 
       const tabMatches = allTabs
         .map(({ tab, space }) => ({
           s: Math.max(score(q, tab.title), score(q, tab.url)) + 5,
-          item: { type: 'tab', id: tab.id, title: tab.title, subtitle: `${space.name} - aba aberta`, favicon: tab.favicon, kind: 'tab' }
+          item: { type: 'tab', id: tab.id, title: tab.title, subtitle: t('tabIn', space.name), favicon: tab.favicon, kind: 'tab' }
         }))
         .filter(x => x.s > 20)
         .sort((a, b) => b.s - a.s)
         .slice(0, 5)
       items.push(...tabMatches.map(x => x.item))
 
-      const actionMatches = this.actions()
-        .map(a => ({ s: score(q, a.title), item: { type: 'action', id: a.id, title: a.title, subtitle: a.hint || 'Acao', kind: 'action' } }))
-        .filter(x => x.s > 20)
-        .sort((a, b) => b.s - a.s)
-        .slice(0, 4)
       items.push(...actionMatches.map(x => x.item))
 
       const now = Date.now()
@@ -232,7 +238,7 @@ class PaletteController {
       for (const space of this.tabs.spaces) {
         space.archived.forEach((a, index) => {
           const s = Math.max(score(q, a.title), score(q, a.url))
-          if (s > 30) archMatches.push({ s, item: { type: 'archived', spaceId: space.id, index, title: a.title, subtitle: `Arquivada - ${space.name}`, favicon: a.favicon, kind: 'history' } })
+          if (s > 30) archMatches.push({ s, item: { type: 'archived', spaceId: space.id, index, title: a.title, subtitle: t('archivedIn', space.name), favicon: a.favicon, kind: 'history' } })
         })
       }
       items.push(...archMatches.sort((a, b) => b.s - a.s).slice(0, 3).map(x => x.item))
@@ -241,11 +247,11 @@ class PaletteController {
       if (space) {
         for (const id of space.tabIds.slice(0, 6)) {
           const tab = this.tabs.tabs.get(id)
-          if (tab) items.push({ type: 'tab', id: tab.id, title: tab.title, subtitle: 'Aba aberta', favicon: tab.favicon, kind: 'tab' })
+          if (tab) items.push({ type: 'tab', id: tab.id, title: tab.title, subtitle: t('openTabSubtitle'), favicon: tab.favicon, kind: 'tab' })
         }
       }
       for (const a of this.actions().slice(0, 6)) {
-        items.push({ type: 'action', id: a.id, title: a.title, subtitle: a.hint || 'Acao', kind: 'action' })
+        items.push({ type: 'action', id: a.id, title: a.title, subtitle: a.hint || t('actionSubtitle'), kind: 'action' })
       }
       for (const h of this.tabs.history.slice(0, 4)) {
         if (!openUrls.has(h.url)) items.push({ type: 'history', title: h.title, subtitle: h.url, url: h.url, kind: 'history' })
@@ -354,7 +360,7 @@ class PaletteController {
       fs.writeFileSync(file, image.toPNG())
       clipboard.writeImage(image)
       if (Notification.isSupported()) {
-        new Notification({ title: 'Screenshot salvo', body: file }).show()
+        new Notification({ title: t('screenshotSaved'), body: file }).show()
       }
     } catch {}
   }
