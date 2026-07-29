@@ -12,6 +12,9 @@ const CDP_PORT = process.env.GALHO_CDP_PORT || '9223'
 const API_PORT = Number(process.env.GALHO_API_PORT || '9224')
 
 app.setName('Galho')
+if (process.env.GALHO_PROFILE) {
+  app.setPath('userData', process.env.GALHO_PROFILE)
+}
 app.commandLine.appendSwitch('remote-debugging-port', CDP_PORT)
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1')
 
