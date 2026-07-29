@@ -12,9 +12,7 @@ Documentação em português: [README.pt-BR.md](README.pt-BR.md)
 | | |
 |---|---|
 | ![Sidebar in glass tinted by the space color, with a live folder and tabs](docs/sidebar.png) | ![Command palette with open tabs and actions](docs/palette.png) |
-| ![Resizable split view](docs/split.png) | ![Agent overlay: cursor, dotted veil and takeover pill](docs/agent-cursor.png) |
-
-![Sidebar peek over the page when the sidebar is hidden](docs/peek.png)
+| ![Resizable split view](docs/split.png) | ![Agent overlay: cursor, dotted veil and takeover pill](docs/agent-cursor.png)
 
 ## Running
 
