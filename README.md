@@ -1,140 +1,158 @@
 # Galho
 
-Browser Arc-like e agent-native, construido sobre Electron (engine Chromium real). Spaces, command palette, split view, pastas (incluindo live folders), find in page, auto-archive — e CDP + API HTTP de agente embutidos de fabrica, com cursor de IA animado estilo ego-browser.
+[![CI](https://github.com/Joao208/galho/actions/workflows/ci.yml/badge.svg)](https://github.com/Joao208/galho/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Rodar
+Arc-inspired, agent-native browser built on Electron (real Chromium engine). Spaces, command palette, split view, folders (including live folders), find in page, auto-archive — and CDP plus a high-level HTTP agent API built in, with an animated AI cursor so you can watch agents work.
+
+Documentação em português: [README.pt-BR.md](README.pt-BR.md)
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Sidebar with favorites, live folder and tabs](docs/sidebar.png) | ![Command palette](docs/palette.png) |
+| ![Split view](docs/split.png) | ![AI cursor during an agent click](docs/agent-cursor.png) |
+
+## Running
 
 ```bash
 pnpm install
 pnpm start          # dev
-pnpm dist           # gera Galho.app + DMG (macOS) em dist/
+pnpm dist           # builds Galho.app + DMG (macOS) into dist/
 ```
 
-CLI global:
+Global CLI:
 
 ```bash
-pnpm link --global  # instala o comando `galho`
-galho               # abre (ou foca) o browser
+pnpm link --global  # installs the `galho` command
+galho               # opens (or focuses) the browser
 galho open github.com
 ```
 
-Perfil persistente (cookies, logins, localStorage) fica em `~/Library/Application Support/Galho` (macOS). Logue no Google, Slack etc. uma vez e a sessao fica. O user agent e o de um Chrome normal, entao login Google funciona.
+The persistent profile (cookies, logins, localStorage) lives in `~/Library/Application Support/Galho` on macOS. Log in to Google, Slack etc. once and the session sticks. The user agent matches a regular Chrome, so Google login works.
 
-## Conceitos
+Set `GALHO_PROFILE=/path/to/profile` to run an isolated instance (useful for tests and demos).
 
-- **Spaces**: grupos de abas com cor e icone proprios. Clique direito no pill: renomear, icone, cor, limpar, excluir. O space **Agentes** e criado automaticamente quando um agente abre aba via API — o agente trabalha ali sem roubar seu foco, usando a mesma sessao logada.
-- **Nao existe pagina de nova aba**: `Cmd+T` abre o command palette, como no Arc. Space vazio mostra so o fundo.
-- **Favoritos**: `Cmd+D` fixa a aba como tile no grid do topo da sidebar.
-- **Pastas**: clique direito na aba > Mover para pasta. Arrastar aba sobre a pasta tambem funciona. **Live folders** sao pastas alimentadas por script/agente via API (ex: seus PRs abertos) — aparecem com ponto laranja.
-- **Split view**: `Cmd+Shift+D` (ou clique direito na aba > Abrir em split view). Duas abas lado a lado.
-- **Arquivo, nao fechar**: `Cmd+W` arquiva (recuperavel no palette > "Ver abas arquivadas"). Abas paradas ha 12h+ sao arquivadas sozinhas (estilo Arc). Botao de vassoura ou `Cmd+Shift+K` limpa o space inteiro (menos favoritos).
-- **Command palette** (`Cmd+T`): busca fuzzy em abas abertas, historico (frecency), arquivadas, acoes do browser, URL direta ou busca no Google. `Cmd+L` abre em modo "abrir aqui".
+## Concepts
 
-## Atalhos
+- **Spaces**: groups of tabs with their own color and icon. Right-click the pill to rename, change icon or color, clean, or delete. The **Agentes** space is created automatically when an agent opens a tab through the API — the agent works there without stealing your focus, reusing your logged-in session.
+- **No new tab page**: `Cmd+T` opens the command palette, like Arc. An empty space shows only the background.
+- **Favorites**: `Cmd+D` pins the tab as a tile in the grid at the top of the sidebar.
+- **Folders**: right-click a tab > Move to folder. Dragging a tab onto a folder also works. **Live folders** are folders fed by a script or agent through the API (for example, your open PRs) — they show an orange dot.
+- **Split view**: `Cmd+Shift+D` (or right-click a tab > Open in split view). Two tabs side by side.
+- **Archive, not close**: `Cmd+W` archives (recoverable from the palette > "Ver abas arquivadas"). Tabs idle for 12h+ are archived automatically (Arc style). The broom button or `Cmd+Shift+K` cleans the whole space (except favorites).
+- **Command palette** (`Cmd+T`): fuzzy search across open tabs, history (frecency), archived tabs, browser actions, direct URLs, or Google search. `Cmd+L` opens it in "open here" mode.
 
-| Atalho | Acao |
+## Shortcuts
+
+| Shortcut | Action |
 |---|---|
-| `Cmd+T` | Command palette (nova aba) |
-| `Cmd+L` | Palette em modo URL (navega na aba atual) |
-| `Cmd+W` | Arquivar aba |
-| `Cmd+Shift+T` | Reabrir aba fechada |
-| `Cmd+D` | Fixar/desafixar favorito |
-| `Cmd+F` | Buscar na pagina |
+| `Cmd+T` | Command palette (new tab) |
+| `Cmd+L` | Palette in URL mode (navigates the current tab) |
+| `Cmd+W` | Archive tab |
+| `Cmd+Shift+T` | Reopen closed tab |
+| `Cmd+D` | Pin/unpin favorite |
+| `Cmd+F` | Find in page |
 | `Cmd+Shift+D` | Split view |
 | `Cmd+Shift+P` | Picture-in-Picture |
-| `Cmd+Shift+K` | Limpar abas do space |
-| `Cmd+N` | Nova janela |
-| `Cmd+Ctrl+N` | Novo space |
-| `Cmd+S` | Mostrar/ocultar sidebar |
-| `Cmd+R` / `Cmd+Shift+R` | Recarregar / sem cache |
-| `Cmd+[` / `Cmd+]` | Voltar / avancar |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Proxima / aba anterior |
-| `Cmd+1..9` | Aba por indice (9 = ultima) |
-| `Ctrl+1..9` | Space por indice |
-| `Cmd+Alt+Left/Right` | Space anterior / proximo |
-| `Cmd+Shift+C` | Copiar URL |
-| `Cmd+Alt+I` | DevTools da aba |
+| `Cmd+Shift+K` | Clean space tabs |
+| `Cmd+N` | New window |
+| `Cmd+Ctrl+N` | New space |
+| `Cmd+S` | Show/hide sidebar |
+| `Cmd+R` / `Cmd+Shift+R` | Reload / reload without cache |
+| `Cmd+[` / `Cmd+]` | Back / forward |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Cmd+1..9` | Tab by index (9 = last) |
+| `Ctrl+1..9` | Space by index |
+| `Cmd+Alt+Left/Right` | Previous / next space |
+| `Cmd+Shift+C` | Copy URL |
+| `Cmd+Alt+I` | Tab DevTools |
 
-Clique duplo renomeia space/pasta. Clique do meio arquiva aba. Arrastar reordena e move pra pastas.
+Double-click renames a space or folder. Middle-click archives a tab. Dragging reorders and moves into folders.
 
 ## CLI
 
 ```
-galho                          abre (ou foca) o browser
-galho open <url> [-s space] [-f]   abre aba (padrao: space Agentes, sem foco)
-galho tabs / spaces            listas
-galho shot <id> [-o out.png]   screenshot da aba
-galho text <id>                innerText da pagina
-galho eval <id> <expr>         roda JS na pagina
-galho click <id> <x> <y>       clica com cursor de IA animado
-galho type <id> <texto>        digita (eventos reais de teclado)
-galho press <id> <tecla>       Return, Tab, Escape...
-galho close <id>               fecha a aba
-galho folder <space> <nome> <links.json>   cria/atualiza live folder
+galho                          opens (or focuses) the browser
+galho open <url> [-s space] [-f]   opens a tab (default: Agentes space, unfocused)
+galho tabs / spaces            lists
+galho shot <id> [-o out.png]   tab screenshot
+galho text <id>                page innerText
+galho eval <id> <expr>         runs JS in the page
+galho click <id> <x> <y>       clicks with the animated AI cursor
+galho type <id> <text>         types (real keyboard events)
+galho press <id> <key>         Return, Tab, Escape...
+galho close <id>               closes the tab
+galho folder <space> <name> <links.json>   creates/updates a live folder
 ```
 
-## Integracao com agentes
+## Agent integration
 
-Duas portas, ambas so em `127.0.0.1` (customizaveis via `GALHO_CDP_PORT` / `GALHO_API_PORT`):
+Two ports, both bound to `127.0.0.1` only (customizable via `GALHO_CDP_PORT` / `GALHO_API_PORT`):
 
-- **9223 — CDP** completo: `http://127.0.0.1:9223/json`
-- **9224 — API HTTP** de alto nivel
+- **9223 — full CDP**: `http://127.0.0.1:9223/json`
+- **9224 — high-level HTTP API**
 
-Quando um agente age numa aba (click/type/navigate/eval), a pagina mostra **cursor laranja animado + borda de glow** (estilo ego-browser) e a aba ganha um badge pulsante na sidebar. Screenshots funcionam para abas em background e com a tela bloqueada.
+When an agent acts on a tab (click/type/navigate/eval), the page shows an **animated orange cursor plus a glow border** and the tab gets a pulsing badge in the sidebar. Screenshots work for background tabs and with the screen locked.
 
 ```bash
 curl http://127.0.0.1:9224/                     # manifest + endpoints
 curl -X POST http://127.0.0.1:9224/tabs -d '{"url":"https://mail.google.com"}'
 curl http://127.0.0.1:9224/tabs/ID/screenshot -o shot.png
 curl -X POST http://127.0.0.1:9224/tabs/ID/click -d '{"x":500,"y":300}'
-curl -X POST http://127.0.0.1:9224/tabs/ID/type -d '{"text":"ola"}'
-curl -X POST http://127.0.0.1:9224/folders -d '{"space":"Trabalho","name":"PRs","links":[{"title":"...","url":"..."}]}'
+curl -X POST http://127.0.0.1:9224/tabs/ID/type -d '{"text":"hello"}'
+curl -X POST http://127.0.0.1:9224/folders -d '{"space":"Work","name":"PRs","links":[{"title":"...","url":"..."}]}'
 ```
 
-Playwright / CDP direto:
+Playwright / raw CDP:
 
 ```js
 const { chromium } = require('playwright')
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9223')
 ```
 
-Ou conecte no `cdpUrl` retornado por `GET /tabs` para uma aba especifica.
+Or connect to the `cdpUrl` returned by `GET /tabs` for a specific tab.
 
-### Seguranca
+### Security
 
-Qualquer processo local acessa as duas portas (mesmo modelo do `--remote-debugging-port` do Chrome). Nao exponha na rede. A sidebar e o chrome da janela ficam fora do alcance das paginas (WebContentsView separada) — pagina nao consegue falsificar a UI do browser.
+Any local process can reach both ports (same model as Chrome's `--remote-debugging-port`). Do not expose them to the network. The sidebar and window chrome are out of reach of web pages (separate WebContentsView) — a page cannot spoof the browser UI.
 
-## Distribuicao
+## Distribution
 
-`pnpm dist` gera `dist/Galho-<versao>-arm64.dmg` e `.zip` (macOS, icone da Arvore). `pnpm dist:win` / `pnpm dist:linux` geram NSIS installer / AppImage+deb (rodar em CI ou na plataforma alvo de preferencia). Sem assinatura/notarizacao por enquanto — primeiro open exige clique direito > Abrir.
+`pnpm dist` produces `dist/Galho-<version>-arm64.dmg` and `.zip` (macOS). `pnpm dist:win` / `pnpm dist:linux` produce an NSIS installer / AppImage+deb (preferably run in CI or on the target platform). No signing/notarization yet — the first open requires right-click > Open on macOS.
 
-## Arquitetura
+## Architecture
 
 ```
 src/
-  main.js               janelas (multi-window), sessao (UA Chrome), IPC, permissoes
-  tab-manager.js        spaces, abas, pastas, split, archive, WebContentsView por aba
-  palette-controller.js command palette (overlay transparente) + acoes + modos
-  find-controller.js    barra de find in page
-  agent-api.js          servidor HTTP 9224 + cursor de IA injetado
-  menu.js               menu nativo + atalhos
-  state.js              persistencia JSON debounced
-  preload.js            bridge IPC com whitelist de canais
+  main.js               windows (multi-window), session (Chrome UA), IPC, permissions
+  tab-manager.js        spaces, tabs, folders, split, archive, one WebContentsView per tab
+  palette-controller.js command palette (transparent overlay) + actions + modes
+  find-controller.js    find in page bar
+  agent-api.js          HTTP server on 9224 + injected AI cursor
+  menu.js               native menu + shortcuts
+  state.js              debounced JSON persistence
+  preload.js            IPC bridge with channel whitelist
 ui/
   index.html/app.js/style.css   sidebar (vibrancy)
   palette.html/palette.js       command palette
-  findbar.html                  barra de busca na pagina
+  findbar.html                  find in page bar
 bin/
   galho.js              CLI
 ```
 
-Cada janela tem seu TabManager; so a aba ativa (ou o par do split) fica attachada — as outras continuam rodando destacadas, entao Slack/Gmail seguem recebendo. Historico e compartilhado entre janelas. Sem framework, sem build step.
+Each window has its own TabManager; only the active tab (or the split pair) stays attached — the others keep running detached, so Slack/Gmail keep receiving. History is shared across windows. No framework, no build step.
 
 ## Roadmap
 
-- UI de downloads
-- Prompts de permissao por site (hoje: allowlist fixa - media/notificacoes sim, geolocalizacao nao)
-- Suporte a extensoes Chrome (Electron suporta um subconjunto via `session.loadExtension`)
+- Downloads UI
+- Per-site permission prompts (today: fixed allowlist - media/notifications yes, geolocation no)
+- Chrome extension support (Electron supports a subset via `session.loadExtension`)
 - Auto-update (electron-updater)
-- Assinatura/notarizacao macOS
-- Restaurar sessao apos crash de renderer (hoje: recarregar a aba)
+- macOS signing/notarization
+- Session restore after a renderer crash (today: reload the tab)
+
+## License
+
+[MIT](LICENSE)

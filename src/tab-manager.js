@@ -21,9 +21,10 @@ function hostOf(url) {
 }
 
 class TabManager {
-  constructor(win, data, sharedHistory, onChange) {
+  constructor(win, data, sharedHistory, onChange, hooks) {
     this.win = win
     this.onChange = onChange
+    this.hooks = hooks || {}
     this.history = sharedHistory
     this.tabs = new Map()
     this.spaces = []
@@ -128,6 +129,7 @@ class TabManager {
     }
     tab.view = view
     this.wire(tab)
+    if (this.hooks.viewCreated) this.hooks.viewCreated(tab, this.win)
     view.webContents.loadURL(tab.url).catch(() => {})
     return view
   }
@@ -217,7 +219,17 @@ class TabManager {
       { type: 'separator' },
       { label: 'Inspecionar elemento', click: () => wc.inspectElement(params.x, params.y) }
     )
-    Menu.buildFromTemplate(template).popup({ window: this.win })
+    const menu = Menu.buildFromTemplate(template)
+    if (this.hooks.contextMenuItems) {
+      try {
+        const items = this.hooks.contextMenuItems(wc, params)
+        if (items && items.length) {
+          menu.insert(0, new (require('electron').MenuItem)({ type: 'separator' }))
+          items.reverse().forEach(item => menu.insert(0, item))
+        }
+      } catch {}
+    }
+    menu.popup({ window: this.win })
   }
 
   createTab({ url, spaceId, activate = true, pinned = false, folderId = null, afterId } = {}) {
@@ -254,6 +266,7 @@ class TabManager {
     tab.lastActiveAt = Date.now()
     this.syncViews()
     tab.view.webContents.focus()
+    if (this.hooks.tabActivated) this.hooks.tabActivated(tab, this.win)
     this.emit()
   }
 
@@ -774,6 +787,7 @@ class TabManager {
       })),
       active: active ? {
         id: active.id,
+        wcId: active.view ? active.view.webContents.id : null,
         url: active.url,
         host: hostOf(active.url),
         secure: (active.url || '').startsWith('https://'),

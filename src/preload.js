@@ -1,5 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+if (location.protocol === 'file:' && location.pathname.endsWith('index.html')) {
+  try {
+    require('electron-chrome-extensions/browser-action').injectBrowserAction()
+  } catch {}
+}
+
 const SEND_CHANNELS = ['ui', 'palette:run', 'palette:hide', 'find:query', 'find:close']
 const INVOKE_CHANNELS = ['palette:query']
 const ON_CHANNELS = ['state', 'palette:open', 'space:edit', 'find:open', 'find:result']

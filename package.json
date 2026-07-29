@@ -2,7 +2,13 @@
   "name": "galho",
   "productName": "Galho",
   "version": "0.2.0",
-  "description": "Browser Arc-like, agent-native, feito na Arvore",
+  "description": "Arc-inspired, agent-native browser built on Electron",
+  "license": "MIT",
+  "author": "Joao Barros",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Joao208/galho.git"
+  },
   "main": "src/main.js",
   "bin": {
     "galho": "bin/galho.js"
@@ -38,18 +44,42 @@
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ]
     },
     "win": {
       "icon": "build/icon.png",
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "linux": {
       "icon": "build/icon.png",
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Network"
     }
+  },
+  "dependencies": {
+    "electron-chrome-extensions": "^4.9.0",
+    "electron-chrome-web-store": "^0.13.0"
   }
 }

@@ -381,6 +381,12 @@ function render() {
   hint.style.display = state.active ? 'none' : 'flex'
   hint.style.left = state.sidebarOpen ? '300px' : '8px'
 
+  const actions = el('actions')
+  if (actions) {
+    if (state.active && state.active.wcId != null) actions.setAttribute('tab', state.active.wcId)
+    else actions.removeAttribute('tab')
+  }
+
   renderFavorites(space)
   renderTabs(space)
   renderSpaces()

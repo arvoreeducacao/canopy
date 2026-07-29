@@ -139,6 +139,24 @@ body::before {
   opacity: 0.6;
 }
 
+#actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 8px;
+  -webkit-app-region: no-drag;
+}
+
+#actions:not(:has(*)) {
+  display: none;
+}
+
+#actions::part(action) {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
 #favorites {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

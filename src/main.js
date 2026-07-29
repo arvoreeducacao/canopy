@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, session, Menu, clipboard } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { ElectronChromeExtensions } = require('electron-chrome-extensions')
+const { installChromeWebStore } = require('electron-chrome-web-store')
 const Store = require('./state')
 const { TabManager, SPACE_COLORS, SPACE_ICONS } = require('./tab-manager')
 const PaletteController = require('./palette-controller')
@@ -26,6 +28,28 @@ const windows = []
 let store = null
 let sharedHistory = []
 let quitting = false
+let extensions = null
+
+function findTabByWebContents(wc) {
+  for (const entry of windows) {
+    for (const tab of entry.tabs.tabs.values()) {
+      if (tab.view && tab.view.webContents === wc) return { entry, tab }
+    }
+  }
+  return null
+}
+
+const extensionHooks = {
+  viewCreated(tab, win) {
+    if (extensions) extensions.addTab(tab.view.webContents, win)
+  },
+  tabActivated(tab) {
+    if (extensions) extensions.selectTab(tab.view.webContents)
+  },
+  contextMenuItems(wc, params) {
+    return extensions ? extensions.getContextMenuItems(wc, params) : []
+  }
+}
 
 function chromeUserAgent() {
   const major = process.versions.chrome.split('.')[0]
@@ -105,7 +129,7 @@ function createWindow(winState = {}) {
   }
   entry.pushState = pushState
 
-  entry.tabs = new TabManager(win, winState, sharedHistory, pushState)
+  entry.tabs = new TabManager(win, winState, sharedHistory, pushState, extensionHooks)
   entry.palette = new PaletteController(win, entry.tabs, {
     find: () => entry.find,
     newWindow: () => createWindow()
@@ -294,12 +318,44 @@ app.whenReady().then(() => {
     callback(allowed.includes(permission))
   })
 
+  extensions = new ElectronChromeExtensions({
+    license: 'GPL-3.0',
+    session: session.defaultSession,
+    async createTab(details) {
+      const entry = windows.find(e => e.win.id === details.windowId) || focusedEntry()
+      const tab = entry.tabs.createTab({ url: details.url || 'about:blank', activate: details.active !== false })
+      return [tab.view.webContents, entry.win]
+    },
+    selectTab(wc) {
+      const found = findTabByWebContents(wc)
+      if (found) found.entry.tabs.activateTab(found.tab.id)
+    },
+    removeTab(wc) {
+      const found = findTabByWebContents(wc)
+      if (found) found.entry.tabs.closeTab(found.tab.id)
+    },
+    async createWindow(details) {
+      const entry = createWindow()
+      const url = Array.isArray(details.url) ? details.url[0] : details.url
+      if (url) entry.tabs.createTab({ url, activate: true })
+      return entry.win
+    },
+    removeWindow(win) {
+      win.close()
+    }
+  })
+  ElectronChromeExtensions.handleCRXProtocol(session.defaultSession)
+
   wireIpc()
 
-  for (const winState of data.windows || [{}]) {
-    createWindow(winState)
-  }
-  if (!windows.length) createWindow()
+  installChromeWebStore({ session: session.defaultSession })
+    .catch(() => {})
+    .then(() => {
+      for (const winState of data.windows || [{}]) {
+        createWindow(winState)
+      }
+      if (!windows.length) createWindow()
+    })
 
   buildMenu({
     entry: () => focusedEntry(),

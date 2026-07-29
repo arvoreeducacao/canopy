@@ -1,4 +1,5 @@
 const http = require('http')
+const { session } = require('electron')
 
 const AGENT_SPACE = 'Agentes'
 const AGENT_COLOR = '#F59E0B'
@@ -164,6 +165,23 @@ function startAgentApi(ctx) {
             'DELETE /folders/:id'
           ]
         })
+      }
+
+      if (parts[0] === 'extensions') {
+        if (req.method === 'GET') {
+          return json(res, 200, session.defaultSession.extensions.getAllExtensions().map(e => ({
+            id: e.id,
+            name: e.name,
+            version: e.version
+          })))
+        }
+        if (req.method === 'POST') {
+          const body = await readBody(req)
+          if (!body.id) return json(res, 400, { error: 'id required (Chrome Web Store extension id)' })
+          const { installExtension } = require('electron-chrome-web-store')
+          const ext = await installExtension(body.id, { session: session.defaultSession })
+          return json(res, 201, { id: ext.id, name: ext.name, version: ext.version })
+        }
       }
 
       if (req.method === 'PUT' && parts[0] === 'spaces' && parts[1]) {

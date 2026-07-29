@@ -66,6 +66,7 @@ class PaletteController {
       { id: 'toggle-sidebar', title: 'Mostrar/ocultar sidebar', hint: 'Cmd S' },
       { id: 'copy-url', title: 'Copiar URL da aba', hint: 'Cmd Shift C' },
       { id: 'screenshot', title: 'Capturar tela da aba' },
+      { id: 'webstore', title: 'Instalar extensoes (Chrome Web Store)' },
       { id: 'devtools', title: 'Abrir DevTools', hint: 'Cmd Alt I' },
       { id: 'reload', title: 'Recarregar pagina', hint: 'Cmd R' },
       { id: 'clear-history', title: 'Limpar historico' }
@@ -303,6 +304,9 @@ class PaletteController {
         break
       case 'screenshot':
         this.screenshot()
+        break
+      case 'webstore':
+        tabs.createTab({ url: 'https://chromewebstore.google.com/', activate: true })
         break
       case 'devtools':
         if (active && active.view) active.view.webContents.openDevTools({ mode: 'detach' })
