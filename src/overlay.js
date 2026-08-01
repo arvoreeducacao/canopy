@@ -10,16 +10,16 @@ export const OVERLAY_SETUP = `(() => {
   delete window.__canopyCursor
   const cursor = document.createElement('div')
   cursor.id = '__canopy_cursor'
-  cursor.style.cssText = 'position:fixed;z-index:2147483647;width:24px;height:24px;pointer-events:none;left:50%;top:40%;transition:left 0.4s cubic-bezier(0.2,0.7,0.3,1),top 0.4s cubic-bezier(0.2,0.7,0.3,1),opacity 0.3s;opacity:0'
+  cursor.style.cssText = 'position:fixed;z-index:2147483647;width:26px;height:32px;pointer-events:none;left:50%;top:40%;transition:left 0.55s cubic-bezier(0.22,0.68,0.26,1),top 0.55s cubic-bezier(0.22,0.68,0.26,1),opacity 0.35s;opacity:0'
   const halo = document.createElement('div')
-  halo.style.cssText = 'position:absolute;left:-9px;top:-9px;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.55),transparent 70%);filter:blur(7px);opacity:0.7'
+  halo.style.cssText = 'position:absolute;left:-14px;top:-12px;width:44px;height:44px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.5),rgba(255,207,107,0.18) 55%,transparent 72%);filter:blur(9px);animation:__canopy_halo 3.4s ease-in-out infinite'
   const arrow = document.createElement('div')
-  arrow.style.cssText = 'position:absolute;left:0;top:0;width:19px;height:24px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4))'
+  arrow.style.cssText = 'position:absolute;left:0;top:0;width:26px;height:32px;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.35))'
   const svgNs = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(svgNs, 'svg')
   svg.setAttribute('viewBox', '0 0 19 24')
-  svg.setAttribute('width', '19')
-  svg.setAttribute('height', '24')
+  svg.setAttribute('width', '26')
+  svg.setAttribute('height', '32')
   const arrowPath = document.createElementNS(svgNs, 'path')
   arrowPath.setAttribute('d', 'M1 1v17.5l4.6-4.2 3 7.2 3.4-1.4-3-7.1h6.5z')
   arrowPath.setAttribute('fill', '#FFFFFF')
@@ -30,25 +30,30 @@ export const OVERLAY_SETUP = `(() => {
   arrow.appendChild(svg)
   cursor.appendChild(halo)
   cursor.appendChild(arrow)
+  // Frosted veil, ego-style: a faint bright sheet with a dot lattice drifting
+  // almost imperceptibly — texture that feels alive without anything blinking.
   const veil = document.createElement('div')
   veil.id = '__canopy_veil'
-  veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;background-color:rgba(12,8,24,0.28);opacity:0;transition:opacity 0.5s'
-  // Presence glow, Dia/Apple-Intelligence style: a huge conic gradient slowly
-  // rotating behind an edge-band mask, blurred and breathing — light flowing
-  // around the viewport border instead of anything blinking in unison.
+  veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;opacity:0;transition:opacity 0.6s;overflow:hidden;' +
+    'background:radial-gradient(115% 115% at 50% 45%,rgba(250,248,255,0.05) 55%,rgba(250,248,255,0.10) 100%)'
+  const lattice = document.createElement('div')
+  lattice.style.cssText = 'position:absolute;inset:-56px;animation:__canopy_drift 80s linear infinite;' +
+    'background-image:radial-gradient(rgba(255,255,255,0.13) 1px,transparent 1.4px),radial-gradient(rgba(60,50,90,0.10) 1px,transparent 1.4px);' +
+    'background-size:28px 28px,28px 28px;background-position:0 0,14px 14px'
+  veil.appendChild(lattice)
+  // Presence glow: aurora at the viewport edges — a huge conic gradient drifting
+  // slowly behind an edge-band mask, heavily blurred, breathing out of phase
+  // with nothing else. Soft light, not a neon frame.
   const glow = document.createElement('div')
   glow.id = '__canopy_glow'
-  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:0;transition:opacity 0.6s;overflow:hidden;padding:16px;' +
+  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:0;transition:opacity 0.8s;overflow:hidden;padding:13px;' +
     'mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);' +
     '-webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)'
   const swirl = document.createElement('div')
-  swirl.style.cssText = 'position:absolute;left:50%;top:50%;width:220vmax;height:220vmax;margin:-110vmax 0 0 -110vmax;border-radius:50%;filter:blur(18px);' +
-    'background:conic-gradient(from 0deg,rgba(255,178,36,0.85),rgba(255,207,107,0.35) 12%,transparent 30%,rgba(61,220,133,0.6) 44%,transparent 58%,rgba(255,178,36,0.75) 72%,transparent 88%,rgba(255,178,36,0.85));' +
-    'animation:__canopy_swirl 9s linear infinite,__canopy_breathe 3.6s ease-in-out infinite'
-  const ring = document.createElement('div')
-  ring.style.cssText = 'position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.20),inset 0 0 34px rgba(255,178,36,0.10)'
+  swirl.style.cssText = 'position:absolute;left:50%;top:50%;width:230vmax;height:230vmax;margin:-115vmax 0 0 -115vmax;border-radius:50%;filter:blur(28px);' +
+    'background:conic-gradient(from 0deg,rgba(255,196,84,0.5),rgba(255,236,190,0.22) 14%,transparent 32%,rgba(122,228,172,0.34) 46%,rgba(210,240,255,0.16) 58%,transparent 70%,rgba(255,196,84,0.42) 84%,rgba(255,196,84,0.5));' +
+    'animation:__canopy_swirl 16s linear infinite,__canopy_breathe 5.2s ease-in-out infinite'
   glow.appendChild(swirl)
-  glow.appendChild(ring)
   const pill = document.createElement('div')
   pill.id = '__canopy_pill'
   pill.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:15px;border:1px solid rgba(255,255,255,0.16);background:rgba(22,20,32,0.96);box-shadow:0 12px 40px rgba(0,0,0,0.45);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 0.4s,transform 0.4s'
@@ -56,7 +61,9 @@ export const OVERLAY_SETUP = `(() => {
   spinner.style.cssText = 'width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.85);border-top-color:transparent;animation:__canopy_spin 0.9s linear infinite'
   const KEYFRAMES = '@keyframes __canopy_spin{to{transform:rotate(360deg)}}' +
     '@keyframes __canopy_swirl{to{transform:rotate(360deg)}}' +
-    '@keyframes __canopy_breathe{0%,100%{opacity:0.55}50%{opacity:1}}' +
+    '@keyframes __canopy_breathe{0%,100%{opacity:0.6}50%{opacity:1}}' +
+    '@keyframes __canopy_halo{0%,100%{transform:scale(1);opacity:0.6}50%{transform:scale(1.18);opacity:0.9}}' +
+    '@keyframes __canopy_drift{to{transform:translate(28px,28px)}}' +
     '@keyframes __canopy_keypop{0%{transform:translateY(8px) scale(.9);opacity:0}12%{transform:translateY(0) scale(1);opacity:1}82%{opacity:1}100%{opacity:0}}' +
     '@keyframes __canopy_pillpulse{0%,100%{transform:translateX(-50%) translateY(0) scale(1)}50%{transform:translateX(-50%) translateY(0) scale(1.05)}}'
   // A <style> element is subject to the page's CSP (style-src) and silently
@@ -135,7 +142,6 @@ export const OVERLAY_SETUP = `(() => {
     labelEl,
     keys,
     guarding: false,
-    timer: null,
     // KeyCastr-style HUD: shows what the agent typed/pressed, bottom-right.
     key(txt) {
       const cap = document.createElement('div')
@@ -145,24 +151,20 @@ export const OVERLAY_SETUP = `(() => {
       while (keys.children.length > 3) keys.firstChild.remove()
       setTimeout(() => cap.remove(), 1450)
     },
-    // While the agent owns the tab, veil + glow + pill stay on permanently —
-    // the whole tab visibly belongs to the AI. The cursor surfaces on actions.
+    // While the agent owns the tab, veil + glow + pill + cursor stay on
+    // permanently — the whole tab visibly belongs to the AI, even when idle.
     presence(label) {
       if (label) labelEl.textContent = label
       this.guarding = true
       veil.style.opacity = '1'
       glow.style.opacity = '1'
+      cursor.style.opacity = '1'
       pill.style.opacity = '1'
       pill.style.pointerEvents = 'auto'
       pill.style.transform = 'translateX(-50%) translateY(0)'
     },
     show(label) {
       this.presence(label)
-      cursor.style.opacity = '1'
-      clearTimeout(this.timer)
-      this.timer = setTimeout(() => {
-        cursor.style.opacity = '0'
-      }, 2600)
     },
     hide() {
       this.guarding = false
