@@ -38,10 +38,26 @@ macOS-only for now (see [Limitations](#limitations)).
 ```bash
 pnpm install
 node bin/canopy.js
-claude mcp add --transport http canopy http://127.0.0.1:4664/mcp
+claude mcp add --transport http canopy http://127.0.0.1:4664/mcp \
+  --header "Authorization: Bearer $(cat ~/.canopy/token)"
 ```
 
-Then open the cockpit at **http://127.0.0.1:4664/** and ask your agent to do something on a website.
+The daemon mints a token at `~/.canopy/token` on first run and requires it on every control
+surface (see [Security model](#security-model)). Then open the cockpit at
+**http://127.0.0.1:4664/** and ask your agent to do something on a website.
+
+If the browser is closed when an agent asks for a tab, the daemon launches it in the background
+(Arc or Chrome, macOS) and waits for the bridge to come up — no manual step.
+
+The same binary is also a small CLI against a running daemon:
+
+```bash
+canopy status                # connected browser + open agent tabs
+canopy open https://example.com --label "checking something"
+canopy tabs
+canopy screenshot t1 out.png
+canopy close t1
+```
 
 The daemon reaches a browser two ways and accepts both at once. When the extension is connected it
 wins, because only that path can group tabs and work without a CDP port.
@@ -72,7 +88,9 @@ port, it works in browsers that never expose one — which is how Canopy runs in
 ## What you see while an agent works
 
 Agent tabs are grouped into an amber **AI** tab group, titled `AI · <page title>`, with a sparkle
-favicon. On the page itself, a veil dims the content and a pill names the current task:
+favicon. On the page itself: a frosted veil with a slowly drifting dot lattice, an aurora of warm
+light breathing along the viewport edges, the AI cursor visible the whole time the agent owns the
+tab (not just during actions), and a pill naming the current task:
 
 ![A Wikipedia page under agent control, dimmed, with the "Agent in control" pill](docs/overlay.png)
 
@@ -167,19 +185,21 @@ has an answer.
 Canopy deliberately gives an agent a lot: a browser holding your live sessions. Please read this
 section before pointing it at a profile that matters.
 
-> [!WARNING]
-> **The daemon currently has no authentication.** Everything binds to `127.0.0.1`, but loopback is
-> not a security boundary: any process on your machine — and, because the REST layer sends
-> `Access-Control-Allow-Origin: *` with no `Origin` or `Host` validation, any web page you happen
-> to have open — can reach the API and drive your logged-in browser. Until this is fixed, run
-> Canopy against the dedicated test profile from Option A, not your real browser.
-> Tracked as a release blocker.
+What the design gives you:
 
-What the design does give you:
-
+- **Token auth by default.** The daemon mints a random token at `~/.canopy/token` (mode `0600`)
+  on first run and requires `Authorization: Bearer <token>` on `/mcp`, on every mutating REST
+  route and on routes that read live page content (screenshots, text, snapshots, network).
+  Loopback is not a security boundary — any local process can reach `127.0.0.1` — so control of
+  your logged-in browser is gated on being able to read that file. `CANOPY_NO_AUTH=1` opts out.
+- **No CORS, Host validated.** REST responses carry no `Access-Control-Allow-Origin`, and
+  requests with a non-loopback `Host` header are refused (DNS-rebinding guard), so a web page you
+  have open cannot reach the daemon even for the unauthenticated cockpit feeds.
 - **Loopback only.** Nothing listens on a routable interface. Do not port-forward or tunnel it.
 - **Your data stays local.** Recordings are files in your home directory. Canopy ships no
-  telemetry and talks to no server of ours.
+  telemetry and talks to no server of ours. (The cockpit's own read feeds — live frames, the
+  action log, replays — stay tokenless so the UI works, which means other *local* processes can
+  view them; treat recordings as screenshots of whatever the agent saw.)
 - **Passwords are skipped.** `browser_snapshot` records the value of every field except
   `type="password"`.
 - **Visible by construction.** An agent cannot drive a tab without the veil, the pill, the marked
@@ -190,8 +210,8 @@ What the design does give you:
 
 The extension requests `debugger` and `<all_urls>`, which is the maximum a Chrome extension can
 ask for. That is inherent to the goal — driving arbitrary pages in a browser that exposes no CDP
-port — and it is why the extension is loaded unpacked from source you can read (115 lines) rather
-than shipped through the Web Store.
+port — and it is why the extension is loaded unpacked from source you can read (~170 lines)
+rather than shipped through the Web Store.
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
@@ -201,24 +221,27 @@ Early, honest about it: `0.1.0`, one contributor, built on top of an earlier Ele
 and ported to this two-lane architecture.
 
 **Works and is exercised:** the MCP and REST surfaces, both transports, the overlay and input
-guard, network capture and replay of API calls, session recording, the cockpit's live feed.
-Developed and tested primarily against Chrome for Testing.
+guard, network capture and replay of API calls, session recording, multi-tab replay filtering,
+the cockpit's live feed, token auth, the CLI. Exercised end-to-end inside Arc (open, navigate,
+act, background-tab keyboard, screenshots) and against Chrome for Testing.
+`examples/stagehand.mjs` connects and drives the same browser over CDP (the LLM `extract` step
+needs `ANTHROPIC_API_KEY`).
+
+Two reliability details worth knowing: the daemon pings the extension every 20 s because MV3
+service workers idle out after ~30 s and would otherwise drop the bridge; and agent tabs survive
+short bridge drops (60 s grace) while tabs left over from a *dead* daemon are swept closed on
+reconnect (the extension remembers them in `chrome.storage.session`).
 
 **Known-thin, help welcome:**
 
-- End-to-end use inside Arc — the extension connects and drives tabs, but the long tail is untested.
-- Tab grouping in Arc returns `-1`; Arc may not render Chrome tab groups at all.
-- The overlay's animations need a retest on sites with a strict `style-src` CSP — keyframes now go
-  through `adoptedStyleSheets` because an injected `<style>` tag was being blocked.
-- `examples/stagehand.mjs` is written but has never been run.
-- Multi-tab replay filtering is implemented but lightly tested.
-- No auth on the daemon (see above), no CLI beyond the launcher, no Web Store package.
-- Orphaned tabs: restarting the daemon leaves previously opened agent tabs behind; close them by hand.
+- Tab grouping in Arc returns `-1`; Arc may not render Chrome tab groups at all (degrades cleanly).
+- The Windows/Linux launcher paths are written but only macOS has been run.
+- No Web Store package yet — `dist/canopy-extension.zip` is built, publishing is pending.
 
 ## Limitations
 
-- **macOS only** for now — the launcher shells out to `open -g` and looks for Chrome in
-  macOS-specific paths. The daemon itself is portable; the launcher is what needs porting.
+- **macOS is the tested platform.** The launcher and CLI carry Windows/Linux paths, but only
+  macOS has actually been run; auto-launching a closed browser is macOS-only (`open -g`).
 - Background tabs cannot screencast, so their feed falls back to ~1.5 s polling. Foreground tabs stream smoothly.
 - In extension mode Chrome shows its "is being debugged" banner. That is the cost of driving a
   real browser without a CDP port.
