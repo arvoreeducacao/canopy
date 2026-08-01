@@ -1,13 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Canopy Bridge",
-  "version": "0.1.0",
-  "description": "Lets AI agents (Claude Code, Codex, Cursor) drive this browser through the local Canopy daemon — with visible AI cursor, tab badges and a live cockpit.",
+  "version": "0.2.0",
+  "description": "Lets AI agents drive this browser through the local Canopy daemon — visible AI cursor, tab badges and a live cockpit.",
+  "homepage_url": "https://github.com/arvoreeducacao/canopy",
+  "minimum_chrome_version": "116",
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Canopy Bridge"
+    "default_title": "Canopy Bridge",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   "permissions": [
     "debugger",
@@ -15,8 +29,5 @@
     "tabGroups",
     "alarms",
     "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
   ]
 }
