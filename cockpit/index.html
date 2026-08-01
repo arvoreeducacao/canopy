@@ -551,7 +551,9 @@ setInterval(() => {
 }, 1000)
 
 /* ---------- live tiles ---------- */
-const MCP_CMD = 'claude mcp add --transport http canopy http://127.0.0.1:4664/mcp'
+// Shell substitution keeps the actual token out of this page (anything served
+// over HTTP is readable by any local process — the shell reads the file instead).
+const MCP_CMD = 'claude mcp add --transport http canopy http://127.0.0.1:4664/mcp --header "Authorization: Bearer $(cat ~/.canopy/token)"'
 
 function emptyState() {
   return '<div class="empty">' +

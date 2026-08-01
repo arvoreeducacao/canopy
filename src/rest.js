@@ -2,9 +2,11 @@
 // Canopy agent API surface (tabs, navigate, act, eval, screenshot,
 // text, control) plus sessions and replay.
 
+// No CORS header on purpose: the cockpit is served same-origin by the daemon,
+// and no other web page has any business reading these responses.
 function json(res, code, data) {
   const body = JSON.stringify(data)
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+  res.writeHead(code, { 'Content-Type': 'application/json' })
   res.end(body)
 }
 
