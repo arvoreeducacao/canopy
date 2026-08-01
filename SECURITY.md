@@ -13,7 +13,7 @@ Use GitHub's private reporting: **Security → Advisories → Report a vulnerabi
 Useful things to include: the version or commit, your platform and browser, what an attacker can
 reach, and a proof of concept if you have one.
 
-We aim to acknowledge within 5 business days. Since the project is `0.1.0` with a single
+We aim to acknowledge within 5 business days. Since the project is pre-1.0 with a single
 maintainer, please treat timelines as best-effort rather than a guarantee.
 
 ## Supported versions
@@ -38,21 +38,20 @@ see below.
 
 ## Known issues
 
-### The daemon is unauthenticated
+### WebSocket upgrades are not authenticated
 
-`0.1.0` ships with no auth on `127.0.0.1:4664`, and the REST layer sends
-`Access-Control-Allow-Origin: *` without validating `Origin` or `Host`. Consequences:
+`0.2.0` gates the HTTP control surfaces — `/mcp` and REST — on a bearer token minted at
+`~/.canopy/token` (mode `0600`), validates the `Host` header against loopback to block DNS
+rebinding, and no longer sends CORS headers at all. What is still open:
 
-- Any local process can drive your logged-in browser.
-- Any web page you have open can too. A `POST` with `Content-Type: text/plain` is a CORS
-  "simple request", so it needs no preflight, and the wildcard header lets the page read the
-  response — which covers `browser_eval`, page text, and screenshots.
-- A spoofed `Host` header is accepted, so DNS rebinding works.
-- The `/ws` and `/ext` WebSockets do not check `Origin`. WebSockets are exempt from CORS, so a page
-  can subscribe to the live frame stream or impersonate the extension.
+- The `/ext` and `/ws` WebSocket upgrades check `Host` but not `Origin` or the token. WebSockets
+  are exempt from CORS, so a page you have open can still connect: to `/ws` to subscribe to the
+  live frame stream, or to `/ext` to impersonate the extension bridge.
+- Any process running as your user can read the token file and therefore drive your browser. That
+  is inherent to a local single-user tool and is accepted by the threat model.
 
-Until this is resolved, **run Canopy against a dedicated browser profile**, not one holding
-sessions you care about. This is a release blocker, not a known-and-accepted risk.
+Until the WebSocket paths are token-gated, prefer **a dedicated browser profile** for sensitive
+work.
 
 ### Prompt injection
 
