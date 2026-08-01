@@ -30,6 +30,44 @@ Three properties it is built around:
 - **Reversible.** Every driven tab has *Take over* and *Stop* one click away, in the page itself
   and in the cockpit.
 
+## How it compares
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/compare-dark.png">
+  <img alt="Capability matrix comparing Canopy with ego lite, Claude in Chrome, BrowserOS, Browser MCP and mcp-chrome, Playwright and Chrome DevTools MCP, and Browserbase and Steel. Canopy is the only one that runs inside Arc, guards human input on driven tabs, ships a live cockpit and stores replays locally; it is behind on stable refs, shadow DOM reach and Windows/Linux support." src="docs/compare-light.png" width="100%">
+</picture>
+
+The row nobody else fills is **your real browser, no CDP port**. Because the extension goes through
+`chrome.debugger` instead of `--remote-debugging-port`, Canopy runs inside Arc — where
+[Claude in Chrome](https://code.claude.com/docs/en/chrome) (Chrome only), Playwright MCP and
+Chrome DevTools MCP do not go.
+
+The closest project in spirit is [ego lite](https://github.com/citrolabs/ego-lite), which reaches the
+same two-lane conclusion from the other end: it ships its own browser and asks you to migrate into it,
+and buys real things with that — refs that survive a DOM reshuffle, shadow-DOM and cross-origin iframe
+reach, no "is being debugged" banner. Canopy is the other side of that trade: keep the browser you have,
+accept a thinner page model. [BrowserOS](https://www.browseros.com/) forks Chromium for the same
+independence; [Browserbase](https://www.browserbase.com/) and [Steel](https://steel.dev/) have the
+observability but in a clean-room cloud browser, without your session.
+
+And prompt injection is not going to be fixed — OpenAI has said as much, and independent tests of the
+agentic browsers keep confirming it. If the attack has no patch, the honest mitigation is auditability:
+watch it live, replay it after, both from your own disk. That is the column Canopy is actually built for.
+
+<details>
+<summary>Where these claims come from</summary>
+
+- ego lite — [repo](https://github.com/citrolabs/ego-lite) · [site](https://lite.ego.app/) (MIT, macOS, Spaces, skill-based, no MCP, no replay)
+- Claude in Chrome — [Claude Code docs](https://code.claude.com/docs/en/chrome) (Chrome only, side panel, own tab group, paid plans)
+- BrowserOS — [site](https://www.browseros.com/) · [releases](https://github.com/browseros-ai/BrowserOS/releases) (Chromium fork, 11+ providers, local models)
+- Browser MCP — [Chrome Web Store](https://chromewebstore.google.com/detail/browser-mcp-automate-your/bjfgambnhccakkhmkepdoekmckoijdlc) · Chrome MCP Server — [repo](https://github.com/hangwin/mcp-chrome)
+- Chrome DevTools MCP — [announcement](https://developer.chrome.com/blog/chrome-devtools-mcp) · [focus-stealing issue](https://github.com/ChromeDevTools/chrome-devtools-mcp/issues/2290)
+- Browserbase — [session live view](https://docs.browserbase.com/platform/browser/observability/session-live-view) · Steel — [comparison](https://steel.dev/blog/steel-vs-browserbase-a-practical-comparison)
+- Prompt injection in agentic browsers — [AI browser security risks](https://research.aimultiple.com/ai-browser-security/)
+
+Checked August 2026. Corrections welcome — open an issue if a row is wrong or has gone stale.
+</details>
+
 ## Quick start
 
 Requires Node ≥ 20. The daemon itself is portable; the `--launch-chrome` helper in Option A is
@@ -136,6 +174,11 @@ Claude Code skill.
 
 Clicking through a UI burns tokens — a snapshot per step, a screenshot when you are unsure. Two
 patterns are roughly an order of magnitude cheaper, and Canopy is shaped to make them easy.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/cost-dark.png">
+  <img alt="Measured cost of reading the Hacker News front page through Canopy: browser_snapshot 6,446 tokens, browser_read 1,069 tokens, browser_eval in code mode 1,060 tokens for the same 30 stories already structured. Read calls take 29–56 ms; an animated action takes about 520 ms." src="docs/cost-light.png" width="100%">
+</picture>
 
 **Code mode** — one `browser_eval` replaces ten `browser_act`s:
 
@@ -247,6 +290,11 @@ reconnect (the extension remembers them in `chrome.storage.session`).
 - In extension mode Chrome shows its "is being debugged" banner. That is the cost of driving a
   real browser without a CDP port.
 - Snapshots cap at ~180 elements (form fields always included). Long pages: scroll and re-snapshot, or go code mode.
+- **Every action costs ~520 ms** — cursor travel and settle time, so a human can follow along. A raw
+  CDP click is ~10× faster. That is the price of the overlay, and the reason long repetitive runs
+  belong in code mode rather than in `browser_act`.
+- Refs are positional: reshuffle the DOM between a snapshot and an act and the ref can go stale.
+  Shadow DOM and cross-origin iframes are not reachable yet.
 
 ## Contributing
 
