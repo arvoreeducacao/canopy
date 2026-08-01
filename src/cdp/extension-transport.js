@@ -85,9 +85,11 @@ export class ExtensionTransport extends EventEmitter {
   async createTab(url) {
     const { tabId } = await this.#op('tabs.create', { url })
     await this.#op('attach', { tabId })
-    // Group agent tabs together — visible as an amber "Agentes" group in
-    // Chrome's tab strip / Arc's sidebar. Best-effort (Arc may ignore groups).
-    await this.#op('tabs.group', { tabId, title: 'AI' }).catch(() => {})
+    // Group agent tabs together — visible as an amber "AI" group in Chrome's
+    // tab strip. Fire-and-forget: grouping is cosmetic, and in Arc
+    // chrome.tabs.group never resolves — awaiting it here stalled every
+    // open on the 30 s op timeout.
+    this.#op('tabs.group', { tabId, title: 'AI' }).catch(() => {})
     return { extTabId: tabId }
   }
 

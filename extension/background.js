@@ -72,21 +72,27 @@ function connect() {
         await rememberAgentTab(tab.id)
         reply({ ok: true, result: { tabId: tab.id } })
       } else if (msg.op === 'tabs.group') {
-        // All agent tabs live in one collapsed-friendly amber group ("AI")
-        const tab = await chrome.tabs.get(msg.tabId)
-        const title = msg.title || 'AI'
-        let groupId = null
-        try {
-          const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title })
-          if (groups.length) groupId = groups[0].id
-        } catch {}
-        if (groupId !== null) {
-          await chrome.tabs.group({ tabIds: [msg.tabId], groupId })
-        } else {
-          groupId = await chrome.tabs.group({ tabIds: [msg.tabId] })
-          await chrome.tabGroups.update(groupId, { title, color: 'yellow' })
-        }
-        reply({ ok: true, result: { groupId } })
+        // All agent tabs live in one collapsed-friendly amber group ("AI").
+        // In Arc the tabs.group/tabGroups promises hang forever — race a
+        // short timeout so the daemon always gets a reply.
+        const group = (async () => {
+          const tab = await chrome.tabs.get(msg.tabId)
+          const title = msg.title || 'AI'
+          let groupId = null
+          try {
+            const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title })
+            if (groups.length) groupId = groups[0].id
+          } catch {}
+          if (groupId !== null) {
+            await chrome.tabs.group({ tabIds: [msg.tabId], groupId })
+          } else {
+            groupId = await chrome.tabs.group({ tabIds: [msg.tabId] })
+            await chrome.tabGroups.update(groupId, { title, color: 'yellow' })
+          }
+          return { groupId }
+        })()
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('tab groups unsupported (timeout)')), 1500))
+        reply({ ok: true, result: await Promise.race([group, timeout]) })
       } else if (msg.op === 'tabs.remove') {
         await forgetAgentTab(msg.tabId)
         await chrome.tabs.remove(msg.tabId).catch(() => {})
