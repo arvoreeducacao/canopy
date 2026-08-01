@@ -13,7 +13,8 @@
     "debugger",
     "tabs",
     "tabGroups",
-    "alarms"
+    "alarms",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"

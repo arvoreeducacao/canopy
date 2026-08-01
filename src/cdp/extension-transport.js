@@ -22,6 +22,14 @@ export class ExtensionTransport extends EventEmitter {
     this.socket = ws
     this.browserInfo = hello.browser || 'via extension'
     this.ready = true
+    // MV3 service workers idle out after ~30s and take the socket with them;
+    // inbound WS traffic resets that timer (Chrome 116+), so a ping every 20s
+    // keeps the bridge alive instead of flapping connect/disconnect.
+    clearInterval(this.pingTimer)
+    this.pingTimer = setInterval(() => {
+      try { ws.send(JSON.stringify({ event: 'ping' })) } catch {}
+    }, 20000)
+    this.pingTimer.unref?.()
     ws.on('message', raw => {
       let msg
       try { msg = JSON.parse(raw) } catch { return }
@@ -29,6 +37,7 @@ export class ExtensionTransport extends EventEmitter {
     })
     ws.on('close', () => {
       if (this.socket === ws) {
+        clearInterval(this.pingTimer)
         this.ready = false
         this.socket = null
         for (const [, p] of this.pending) p.reject(new Error('extension disconnected'))
@@ -37,6 +46,9 @@ export class ExtensionTransport extends EventEmitter {
       }
     })
     this.emit('connected')
+    // Agent tabs a previous daemon left behind (extension tracks them in
+    // storage.session) — the controller decides what to do with them.
+    if (Array.isArray(hello.orphans) && hello.orphans.length) this.emit('orphans', hello.orphans)
   }
 
   #onMessage(msg) {

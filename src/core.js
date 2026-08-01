@@ -49,10 +49,31 @@ export class Controller extends EventEmitter {
     // Note: focusing an agent tab does NOT auto-take-over — the input guard
     // makes watching safe; control changes hands only via the pill/cockpit.
     t.on('tab.removed', msg => this.#onExtTabRemoved(msg.tabId))
-    t.on('disconnected', () => {
-      for (const tab of this.tabs.values()) {
-        if (tab.transport === t) this.#dropTab(tab, 'transport disconnected')
+    // Orphan sweep: agent tabs left behind by a dead daemon get closed on
+    // reconnect — an agent tab without a controlling session is just litter.
+    t.on('orphans', async extTabIds => {
+      let closed = 0
+      for (const extTabId of extTabIds) {
+        const tracked = [...this.tabs.values()].some(tab => tab.transport === t && tab.ref.extTabId === extTabId)
+        if (tracked) continue
+        await t.closeTab({ extTabId }).then(() => { closed += 1 }).catch(() => {})
       }
+      if (closed) console.log(`[canopy] ${closed} aba(s) de agente órfã(s) fechada(s)`)
+    })
+    t.on('connected', () => clearTimeout(t._dropTimer))
+    t.on('disconnected', () => {
+      // Extension refs (extTabId) stay valid across WS reconnects, so give the
+      // bridge a grace window to come back before declaring the tabs dead.
+      // Port-mode refs (CDP sessionId) die with the socket — drop immediately.
+      const drop = () => {
+        for (const tab of this.tabs.values()) {
+          if (tab.transport === t) this.#dropTab(tab, 'transport disconnected')
+        }
+      }
+      if (t.kind !== 'extension') return drop()
+      clearTimeout(t._dropTimer)
+      t._dropTimer = setTimeout(() => { if (!t.ready) drop() }, 60000)
+      t._dropTimer.unref?.()
     })
   }
 
@@ -123,7 +144,10 @@ export class Controller extends EventEmitter {
   }
 
   async openTab(url, { session, label, activate } = {}) {
-    const t = this.transport()
+    let t = this.transport()
+    // No browser? Try to launch one (hook set by the daemon) and wait for a
+    // transport to dial in — the agent can start from a fully closed browser.
+    if (!t && this.requestBrowser) t = await this.requestBrowser().catch(() => null)
     if (!t) throw new Error('no browser connected — launch Chrome with --remote-debugging-port or connect the Canopy extension')
     const s = this.#resolveSession(session)
     // Open on about:blank first so Network/Runtime/Emulation are enabled

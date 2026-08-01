@@ -8,6 +8,30 @@ let ws = null
 const attached = new Set()
 const agentTabs = new Set()
 
+// Agent tab ids also live in storage.session: it survives service-worker
+// restarts (unlike these Sets) and is cleared when the browser closes — so a
+// reconnecting daemon can find tabs a dead daemon left behind and close them.
+async function rememberAgentTab(tabId) {
+  agentTabs.add(tabId)
+  const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
+  if (!agentTabIds.includes(tabId)) await chrome.storage.session.set({ agentTabIds: [...agentTabIds, tabId] })
+}
+async function forgetAgentTab(tabId) {
+  agentTabs.delete(tabId)
+  attached.delete(tabId)
+  const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
+  await chrome.storage.session.set({ agentTabIds: agentTabIds.filter(id => id !== tabId) })
+}
+async function liveAgentTabs() {
+  const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
+  const alive = []
+  for (const id of agentTabIds) {
+    try { await chrome.tabs.get(id); alive.push(id) } catch {}
+  }
+  if (alive.length !== agentTabIds.length) await chrome.storage.session.set({ agentTabIds: alive })
+  return alive
+}
+
 function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
 }
@@ -15,8 +39,9 @@ function send(msg) {
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
   try { ws = new WebSocket(DAEMON) } catch { return }
-  ws.onopen = () => {
-    send({ event: 'hello', browser: navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium' })
+  ws.onopen = async () => {
+    const orphans = await liveAgentTabs().catch(() => [])
+    send({ event: 'hello', browser: navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium', orphans })
     chrome.action.setBadgeText({ text: 'on' })
     chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' })
   }
@@ -28,6 +53,8 @@ function connect() {
   ws.onmessage = async e => {
     let msg
     try { msg = JSON.parse(e.data) } catch { return }
+    // Daemon keepalive — receiving it already reset the SW idle timer.
+    if (msg.event === 'ping') return
     const reply = payload => send({ id: msg.id, ...payload })
     try {
       if (msg.op === 'cdp') {
@@ -38,10 +65,11 @@ function connect() {
           await chrome.debugger.attach({ tabId: msg.tabId }, '1.3')
           attached.add(msg.tabId)
         }
-        agentTabs.add(msg.tabId)
+        await rememberAgentTab(msg.tabId)
         reply({ ok: true, result: {} })
       } else if (msg.op === 'tabs.create') {
         const tab = await chrome.tabs.create({ url: msg.url, active: false })
+        await rememberAgentTab(tab.id)
         reply({ ok: true, result: { tabId: tab.id } })
       } else if (msg.op === 'tabs.group') {
         // All agent tabs live in one collapsed-friendly amber group ("AI")
@@ -60,8 +88,7 @@ function connect() {
         }
         reply({ ok: true, result: { groupId } })
       } else if (msg.op === 'tabs.remove') {
-        agentTabs.delete(msg.tabId)
-        attached.delete(msg.tabId)
+        await forgetAgentTab(msg.tabId)
         await chrome.tabs.remove(msg.tabId).catch(() => {})
         reply({ ok: true, result: {} })
       } else if (msg.op === 'tabs.activate') {
@@ -99,9 +126,11 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 
 chrome.tabs.onRemoved.addListener(tabId => {
   if (agentTabs.has(tabId)) {
-    agentTabs.delete(tabId)
-    attached.delete(tabId)
+    forgetAgentTab(tabId)
     send({ event: 'tab.removed', tabId })
+  } else {
+    // Even if this worker restarted and lost the in-memory Set, keep storage honest.
+    forgetAgentTab(tabId)
   }
 })
 
