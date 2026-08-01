@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canopy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@300;400;500;600&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all'">
+<style>
+  /* ============================================================
+     CANOPY MISSION CONTROL — flight-deck theme
+     one signature accent (signal amber), mono telemetry,
+     viewfinder brackets, near-zero idle cost
+     ============================================================ */
+  :root {
+    --bg:        #08090b;
+    --panel:     #0d0f12;
+    --panel-2:   #13161b;
+    --panel-3:   #191d23;
+    --line:      #1c2027;
+    --line-2:    #2b313b;
+    --text:      #e7eaee;
+    --dim:       #8a919c;
+    --faint:     #545b66;
+
+    --amber:     #ffb224;
+    --amber-hi:  #ffcf6b;
+    --amber-dim: rgba(255,178,36,.08);
+    --amber-line:rgba(255,178,36,.34);
+
+    --green:     #3ddc85;
+    --green-dim: rgba(61,220,133,.10);
+    --green-line:rgba(61,220,133,.30);
+
+    --red:       #ff5d5d;
+    --red-dim:   rgba(255,93,93,.10);
+    --red-line:  rgba(255,93,93,.35);
+
+    --mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection { background: rgba(255,178,36,.22); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a414d; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  button { font-family: inherit; }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 1.5px solid var(--amber-line); outline-offset: 2px;
+  }
+
+  /* micro-label — the system's smallest voice */
+  .k {
+    font-family: var(--mono);
+    font-size: 9.5px; font-weight: 600;
+    letter-spacing: .18em; text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ================= header / status bar ================= */
+  header {
+    display: flex; align-items: center; gap: 20px;
+    height: 58px; padding: 0 28px;
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 30;
+    background: rgba(8,9,11,.92);
+    backdrop-filter: blur(12px);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 220px; }
+  .brand .mark { width: 28px; height: 28px; flex: none; }
+  .brand .names { line-height: 1; }
+  .brand .n1 {
+    font-family: var(--mono); font-size: 13.5px; font-weight: 600;
+    letter-spacing: .22em; text-transform: uppercase;
+  }
+  .brand .n1 em { font-style: normal; color: var(--amber); }
+  .brand .n2 {
+    font-family: var(--mono); font-size: 8.5px; font-weight: 500;
+    letter-spacing: .3em; text-transform: uppercase; color: var(--faint);
+    margin-top: 5px;
+  }
+
+  nav {
+    display: flex; gap: 0; margin: 0 auto;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+    background: var(--panel);
+  }
+  nav button {
+    background: none; border: none; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: .16em; text-transform: uppercase;
+    color: var(--dim); padding: 9px 22px;
+    transition: color .18s, background .18s;
+    position: relative;
+  }
+  nav button + button { border-left: 1px solid var(--line); }
+  nav button:hover { color: var(--text); }
+  nav button.on { color: var(--amber); background: var(--amber-dim); }
+  nav button.on::after {
+    content: ''; position: absolute; left: 22px; right: 22px; bottom: 0;
+    height: 1.5px; background: var(--amber);
+  }
+
+  .hud { display: flex; align-items: center; gap: 22px; min-width: 220px; justify-content: flex-end; }
+  .hud .cell { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .hud .cell .v { font-family: var(--mono); font-size: 11.5px; color: var(--dim); line-height: 1; font-variant-numeric: tabular-nums; }
+  .hud .uplink .v { color: var(--red); }
+  .hud .uplink.ok .v { color: var(--green); }
+  .beacon {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--red); position: relative; flex: none;
+  }
+  .uplink.ok .beacon { background: var(--green); }
+  .uplink.ok .beacon::after {
+    content: ''; position: absolute; inset: -3px; border-radius: 50%;
+    border: 1px solid var(--green);
+    animation: ping 2.4s cubic-bezier(0,.6,.4,1) infinite;
+  }
+  @keyframes ping { 0% { transform: scale(.5); opacity: .9; } 70%, 100% { transform: scale(1.6); opacity: 0; } }
+
+  /* ================= deck strip (big anchor row) ================= */
+  .deck {
+    display: flex; align-items: center; gap: 28px;
+    padding: 26px 32px 24px;
+    max-width: 1600px; margin: 0 auto;
+    position: relative;
+  }
+  .deck::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 26px 26px;
+    opacity: .22;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 90%);
+            mask-image: linear-gradient(180deg, #000 0%, transparent 90%);
+  }
+  .deck > * { position: relative; }
+  .deck .big {
+    font-family: var(--mono); font-weight: 300;
+    font-size: 58px; line-height: .9; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--faint);
+  }
+  .deck .big em { font-style: normal; color: var(--amber); }
+  .deck .big-label { display: flex; flex-direction: column; gap: 6px; }
+  .deck .divider { width: 1px; height: 44px; background: var(--line-2); }
+  .deck .stat { display: flex; flex-direction: column; gap: 7px; }
+  .deck .stat .v {
+    font-family: var(--mono); font-size: 15px; font-weight: 400;
+    color: var(--dim); line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .deck .spacer { flex: 1; }
+  .deck .stamp { text-align: right; }
+  .deck .stamp .k { display: block; margin-bottom: 7px; }
+  .deck .stamp .v { font-family: var(--mono); font-size: 15px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  /* ================= live layout ================= */
+  main#live { display: grid; grid-template-columns: 1fr 336px; gap: 22px; padding: 0 32px 40px; max-width: 1600px; margin: 0 auto; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; align-content: start; }
+
+  /* ================= tiles ================= */
+  .tile {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    animation: rise .38s cubic-bezier(.2,.75,.3,1) both;
+    transition: border-color .25s, transform .25s cubic-bezier(.2,.75,.3,1), opacity .2s;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  .tile:hover { transform: translateY(-2px); border-color: var(--line-2); }
+  .tile.closing { opacity: 0; transform: scale(.97); }
+  .tile::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; z-index: 5;
+    background: var(--faint); transition: background .3s;
+  }
+  .tile.live::before { background: var(--green); }
+  .tile.held::before { background: var(--amber); }
+  .tile.stopped::before { background: var(--red); }
+
+  .tile-top {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px 10px 16px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+  }
+  .sig {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 9.5px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase;
+  }
+  .sig .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .tile.live    .sig { color: var(--green); } .tile.live    .sig .dot { background: var(--green); animation: blip 1.6s ease-in-out infinite; }
+  .tile.held    .sig { color: var(--amber); } .tile.held    .sig .dot { background: var(--amber); }
+  .tile.stopped .sig { color: var(--red); }   .tile.stopped .sig .dot { background: var(--red); }
+  @keyframes blip { 50% { opacity: .25; } }
+  .tid { font-size: 9.5px; color: var(--faint); letter-spacing: .08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
+  .tele { margin-left: auto; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+
+  .view { position: relative; aspect-ratio: 16/10; background: #050607; overflow: hidden; }
+  .view img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .view .corners { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+  .view .corners i, #rviewport .corners i {
+    position: absolute; width: 13px; height: 13px;
+    border: 1.5px solid rgba(231,234,238,.25);
+    transition: border-color .3s;
+  }
+  .tile.live .view .corners i { border-color: var(--green-line); }
+  .corners i:nth-child(1) { top: 9px;  left: 9px;  border-right: 0 !important; border-bottom: 0 !important; }
+  .corners i:nth-child(2) { top: 9px;  right: 9px; border-left: 0 !important;  border-bottom: 0 !important; }
+  .corners i:nth-child(3) { bottom: 9px; left: 9px;  border-right: 0 !important; border-top: 0 !important; }
+  .corners i:nth-child(4) { bottom: 9px; right: 9px; border-left: 0 !important;  border-top: 0 !important; }
+  .skel {
+    position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden;
+  }
+  .skel .k { color: #3a414d; }
+  .skel::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -45%; width: 45%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.035), transparent);
+    animation: sweep 1.9s linear infinite;
+  }
+  @keyframes sweep { to { transform: translateX(340%); } }
+
+  .tile-body { padding: 13px 16px 4px; }
+  .t-title {
+    font-size: 13.5px; font-weight: 550; letter-spacing: -.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .t-url {
+    font-family: var(--mono); font-size: 10px; color: var(--faint);
+    margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .task {
+    display: flex; align-items: baseline; gap: 9px; margin-top: 11px;
+    border-top: 1px dashed var(--line); padding-top: 10px;
+  }
+  .task .k { color: var(--amber); flex: none; }
+  .task .tx { font-size: 12px; color: var(--dim); line-height: 1.45; }
+
+  .tile-actions { display: flex; gap: 8px; padding: 12px 16px 14px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase;
+    border: 1px solid var(--line-2); border-radius: 6px;
+    background: transparent; color: var(--dim);
+    padding: 8px 0; flex: 1; cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:hover { color: var(--text); border-color: #3a414d; background: var(--panel-2); }
+  .btn.primary { color: var(--amber); border-color: var(--amber-line); }
+  .btn.primary:hover { background: var(--amber-dim); color: var(--amber-hi); border-color: var(--amber-line); }
+  .btn.solid { background: var(--amber); border-color: var(--amber); color: #14100a; }
+  .btn.solid:hover { background: var(--amber-hi); border-color: var(--amber-hi); color: #14100a; }
+  .btn.stop:hover { color: var(--red); border-color: var(--red-line); background: var(--red-dim); }
+  .btn.icon { flex: 0 0 auto; padding: 8px 11px; border-color: transparent; color: var(--faint); }
+  .btn.icon:hover { color: var(--red); background: var(--red-dim); border-color: transparent; }
+
+  /* ================= action log ================= */
+  #feed {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    height: fit-content; max-height: calc(100vh - 220px);
+    position: sticky; top: 80px;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 13px 16px; border-bottom: 1px solid var(--line); flex: none;
+  }
+  .panel-head .cnt { font-family: var(--mono); font-size: 10px; color: var(--amber); font-weight: 600; margin-left: auto; font-variant-numeric: tabular-nums; }
+  #evts { overflow-y: auto; padding: 4px 16px 10px; }
+  .evt { padding: 9px 0; border-bottom: 1px solid var(--line); animation: slot .22s ease both; }
+  .evt:last-child { border-bottom: none; }
+  @keyframes slot { from { opacity: 0; transform: translateX(8px); } }
+  .e-head { display: flex; align-items: baseline; gap: 8px; }
+  .e-tool {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--text);
+  }
+  .e-tool .rep { color: var(--amber); }
+  .e-ts { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .e-det { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; line-height: 1.55; word-break: break-all; }
+
+  /* ================= empty state ================= */
+  .empty { grid-column: 1 / -1; text-align: center; padding: 84px 20px 70px; }
+  .empty .mark { width: 52px; height: 52px; margin: 0 auto 22px; display: block; }
+  .empty h3 { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; }
+  .empty p { font-size: 12.5px; color: var(--dim); margin: 10px 0 26px; }
+  .term {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px;
+    padding: 12px 18px; cursor: pointer; position: relative;
+    font-family: var(--mono); font-size: 11.5px;
+    transition: border-color .2s;
+  }
+  .term:hover { border-color: var(--amber-line); }
+  .term .ps { color: var(--amber); font-weight: 600; user-select: none; }
+  .term .cmd { color: var(--text); }
+  .term .flag {
+    position: absolute; top: -9px; right: 12px;
+    font-family: var(--mono); font-size: 8.5px; font-weight: 600;
+    letter-spacing: .2em; text-transform: uppercase;
+    background: var(--amber); color: #14100a; border-radius: 3px; padding: 2px 7px;
+    opacity: 0; transform: translateY(3px);
+    transition: opacity .2s, transform .2s;
+  }
+  .term.copied .flag { opacity: 1; transform: translateY(0); }
+
+  /* ================= replay ================= */
+  #replay { padding: 0 32px 40px; max-width: 1600px; margin: 0 auto; }
+  #rgrid { display: grid; grid-template-columns: 268px 1fr 312px; gap: 22px; align-items: start; }
+  #rsessions, #ractions {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    max-height: calc(100vh - 220px); position: sticky; top: 80px;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #rslist, #rlist { overflow-y: auto; padding: 8px; }
+  .scard {
+    padding: 11px 12px; border-radius: 7px; border: 1px solid transparent;
+    cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .scard:hover { background: var(--panel-2); }
+  .scard.on { background: var(--amber-dim); border-color: var(--amber-line); }
+  .scard .sl { font-size: 12.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scard.on .sl { color: var(--amber-hi); }
+  .scard .sm { font-family: var(--mono); font-size: 9.5px; color: var(--faint); margin-top: 5px; letter-spacing: .04em; }
+
+  #rstage { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  #rviewport { position: relative; background: #050607; }
+  #rimg { width: 100%; display: block; min-height: 320px; max-height: 58vh; object-fit: contain; }
+
+  #rtabs { display: flex; gap: 6px; padding: 12px 18px 0; flex-wrap: wrap; }
+  #rtabs:empty { display: none; }
+  #rtabs button {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase;
+    padding: 5px 12px; border-radius: 999px;
+    background: transparent; color: var(--dim); border: 1px solid var(--line-2); cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  #rtabs button:hover { color: var(--text); }
+  #rtabs button.on { color: var(--amber); border-color: var(--amber-line); background: var(--amber-dim); }
+
+  #transport { display: flex; align-items: center; gap: 16px; padding: 16px 18px 6px; }
+  #rplay {
+    width: 40px; height: 40px; flex: none; display: grid; place-items: center;
+    background: transparent; border: 1px solid var(--amber-line); border-radius: 8px;
+    color: var(--amber); cursor: pointer;
+    transition: background .15s, transform .12s;
+  }
+  #rplay:hover { background: var(--amber-dim); }
+  #rplay:active { transform: scale(.94); }
+  #rtrack { flex: 1; position: relative; padding: 10px 0; }
+  #rscrub { width: 100%; accent-color: var(--amber); display: block; height: 4px; cursor: pointer; }
+  #rmarks { position: absolute; left: 0; right: 0; top: 0; height: 7px; pointer-events: none; }
+  #rmarks i {
+    position: absolute; width: 2px; height: 7px; background: var(--amber);
+    opacity: .55; transform: translateX(-1px); pointer-events: auto; cursor: pointer;
+    transition: opacity .12s;
+  }
+  #rmarks i:hover { opacity: 1; }
+  #rspeed {
+    background: var(--panel-2); color: var(--dim); border: 1px solid var(--line-2); border-radius: 6px;
+    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .1em;
+    padding: 6px 8px; cursor: pointer; text-align: center;
+  }
+  #rclock { display: flex; align-items: baseline; gap: 6px; min-width: 150px; justify-content: flex-end; }
+  #rtc {
+    font-family: var(--mono); font-size: 26px; font-weight: 300;
+    letter-spacing: .02em; font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  #rtot { font-family: var(--mono); font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  #ract {
+    padding: 8px 18px 14px; font-family: var(--mono); font-size: 11px;
+    color: var(--dim); min-height: 34px; word-break: break-all; line-height: 1.5;
+  }
+  #ract b { color: var(--amber); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+  #rhint {
+    padding: 0 18px 14px; font-family: var(--mono); font-size: 9.5px;
+    color: var(--faint); letter-spacing: .06em;
+  }
+  #rhint kbd {
+    font-family: inherit; border: 1px solid var(--line-2); border-radius: 3px;
+    padding: 1px 5px; color: var(--dim);
+  }
+
+  .ritem {
+    display: flex; gap: 10px; align-items: baseline; padding: 8px 9px; border-radius: 6px;
+    cursor: pointer; transition: background .13s;
+  }
+  .ritem:hover { background: var(--panel-2); }
+  .ritem.now { background: var(--amber-dim); box-shadow: inset 2px 0 0 var(--amber); }
+  .ritem .t { font-family: var(--mono); font-size: 10px; color: var(--faint); flex: none; width: 46px; font-variant-numeric: tabular-nums; }
+  .ritem .tool { font-family: var(--mono); font-size: 9.5px; font-weight: 600; color: var(--amber); text-transform: uppercase; letter-spacing: .08em; flex: none; }
+  .ritem.now .tool { color: var(--amber-hi); }
+  .ritem .d { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- brand mark: branch-as-antenna inside viewfinder brackets, drawn once, reused -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="canopy-mark">
+      <path d="M4 9 V4 H9 M25 4 H30 V9 M30 25 V30 H25 M9 30 H4 V25"
+            fill="none" stroke="#545b66" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M17 27 V10 M17 14.5 C13.6 13.2 11.6 11 11.2 7.8 M17 19.5 C20.4 18.2 22.4 16 22.8 12.8"
+            fill="none" stroke="#ffb224" stroke-width="2.1" stroke-linecap="round"/>
+      <circle cx="11" cy="7" r="1.7" fill="#ffb224"/>
+      <circle cx="23" cy="12" r="1.7" fill="#3ddc85"/>
+      <circle cx="17" cy="9.4" r="1.4" fill="#ffb224" opacity=".55"/>
+    </g>
+  </defs>
+</svg>
+
+<header>
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 34 34"><use href="#canopy-mark"/></svg>
+    <div class="names">
+      <div class="n1">CANOPY<em>_</em></div>
+      <div class="n2">Mission Control</div>
+    </div>
+  </div>
+  <nav>
+    <button id="navLive" class="on">Live Feed</button>
+    <button id="navReplay">Flight Recorder</button>
+  </nav>
+  <div class="hud">
+    <div class="cell"><span class="k">browser</span><span class="v" id="hudBrowser">--</span></div>
+    <div class="cell"><span class="k">local time</span><span class="v" id="hudClock">--:--:--</span></div>
+    <div class="cell uplink" id="hudLink">
+      <span class="k">uplink</span>
+      <span style="display:flex;align-items:center;gap:7px"><span class="beacon"></span><span class="v" id="hudLinkTxt">OFFLINE</span></span>
+    </div>
+  </div>
+</header>
+
+<!-- ================= LIVE ================= -->
+<div id="liveWrap">
+  <div class="deck">
+    <div class="big" id="deckCount">00</div>
+    <div class="big-label">
+      <span class="k">active</span>
+      <span class="k" style="color:var(--dim)">agents</span>
+    </div>
+    <div class="divider"></div>
+    <div class="stat"><span class="k">actions logged</span><span class="v" id="deckActions">0</span></div>
+    <div class="stat"><span class="k">status</span><span class="v" id="deckMode">connecting&hellip;</span></div>
+    <div class="spacer"></div>
+    <div class="stamp">
+      <span class="k">daemon</span>
+      <span class="v">127.0.0.1:4664</span>
+    </div>
+  </div>
+  <main id="live">
+    <section id="grid"></section>
+    <aside id="feed">
+      <div class="panel-head"><span class="k">Action Log</span><span class="cnt" id="evtCount"></span></div>
+      <div id="evts"></div>
+    </aside>
+  </main>
+</div>
+
+<!-- ================= REPLAY ================= -->
+<div id="replayWrap" style="display:none">
+  <div class="deck">
+    <div class="big" id="deckSessions">00</div>
+    <div class="big-label">
+      <span class="k">recorded</span>
+      <span class="k" style="color:var(--dim)">sessions</span>
+    </div>
+    <div class="divider"></div>
+    <div class="stat"><span class="k">selected</span><span class="v" id="deckSel">--</span></div>
+    <div class="spacer"></div>
+    <div class="stamp">
+      <span class="k">playback</span>
+      <span class="v">true-speed</span>
+    </div>
+  </div>
+  <section id="replay">
+    <div id="rgrid">
+      <aside id="rsessions">
+        <div class="panel-head"><span class="k">Sessions</span><span class="cnt" id="sCount"></span></div>
+        <div id="rslist"></div>
+      </aside>
+      <div id="rstage">
+        <div id="rviewport">
+          <img id="rimg" alt="">
+          <span class="corners"><i></i><i></i><i></i><i></i></span>
+        </div>
+        <div id="rtabs"></div>
+        <div id="transport">
+          <button id="rplay" aria-label="play">
+            <svg width="14" height="14" viewBox="0 0 14 14" id="rplayIcon"><path d="M3.5 2 L11.5 7 L3.5 12 Z" fill="currentColor"/></svg>
+          </button>
+          <div id="rtrack">
+            <div id="rmarks"></div>
+            <input type="range" id="rscrub" min="0" max="0" value="0">
+          </div>
+          <select id="rspeed">
+            <option value="1">1&times;</option>
+            <option value="2" selected>2&times;</option>
+            <option value="4">4&times;</option>
+            <option value="8">8&times;</option>
+          </select>
+          <div id="rclock"><span id="rtc">00:00.0</span><span id="rtot">/ 00:00.0</span></div>
+        </div>
+        <div id="ract"></div>
+        <div id="rhint"><kbd>space</kbd> play/pause &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> step &nbsp; click a marker to jump</div>
+      </div>
+      <aside id="ractions">
+        <div class="panel-head"><span class="k">Timeline</span><span class="cnt" id="rCount"></span></div>
+        <div id="rlist"></div>
+      </aside>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id)
+const esc = s => (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+const state = { tabs: [], frames: {}, replay: null, playing: null, actionCount: 0 }
+
+const ICONS = {
+  hand: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 11V6a2 2 0 1 1 4 0v4V4.5a2 2 0 1 1 4 0V10m0-2.5a2 2 0 1 1 4 0V14a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.4L3.5 13a1.8 1.8 0 0 1 3-1.8L7 12"/></svg>',
+  square: '<svg width="9" height="9" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="currentColor"/></svg>',
+  play: '<svg width="9" height="9" viewBox="0 0 12 12"><path d="M2.5 1.5 L10.5 6 L2.5 10.5 Z" fill="currentColor"/></svg>',
+  x: '<svg width="10" height="10" viewBox="0 0 12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5"/></svg>'
+}
+const VERB = {
+  open: 'opened', navigate: 'navigated', click: 'clicked', fill: 'typed', press: 'pressed',
+  scroll: 'scrolled', snapshot: 'read page', read: 'read text', eval: 'ran code',
+  screenshot: 'captured', wait: 'waited', close: 'closed', control: 'control', request_body: 'inspected API'
+}
+
+/* ---------- formatting ---------- */
+const pad2 = n => String(n).padStart(2, '0')
+function fmtElapsed(t0) {
+  const s = Math.max(0, Math.round((Date.now() - t0) / 1000))
+  if (s < 3600) return pad2(Math.floor(s / 60)) + ':' + pad2(s % 60)
+  return Math.floor(s / 3600) + 'h' + pad2(Math.floor((s % 3600) / 60)) + 'm'
+}
+function timecode(ms) {
+  const s = Math.max(0, ms) / 1000
+  const m = Math.floor(s / 60)
+  return pad2(m) + ':' + (s - m * 60).toFixed(1).padStart(4, '0')
+}
+
+/* ---------- one 1s ticker: header clock + tile telemetry ---------- */
+setInterval(() => {
+  const d = new Date()
+  $('hudClock').textContent = pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds())
+  for (const t of state.tabs) {
+    const el = document.querySelector('#tile-' + CSS.escape(String(t.id)) + ' .tele')
+    if (el) el.textContent = fmtElapsed(t.createdAt || Date.now()) + ' · ' + (t.steps || 0) + ' steps'
+  }
+}, 1000)
+
+/* ---------- live tiles ---------- */
+const MCP_CMD = 'claude mcp add --transport http canopy http://127.0.0.1:4664/mcp'
+
+function emptyState() {
+  return '<div class="empty">' +
+    '<svg class="mark" viewBox="0 0 34 34"><use href="#canopy-mark"/></svg>' +
+    '<h3>No active agents</h3>' +
+    '<p>Connect Claude Code and ask for anything that touches the web.</p>' +
+    '<div class="term" onclick="copyCmd(this)">' +
+      '<span class="ps">$</span><span class="cmd">' + MCP_CMD + '</span>' +
+      '<span class="flag">Copied</span>' +
+    '</div></div>'
+}
+function copyCmd(el) {
+  navigator.clipboard.writeText(MCP_CMD)
+  el.classList.add('copied')
+  setTimeout(() => el.classList.remove('copied'), 1400)
+}
+
+function tile(t) {
+  const status = t.stopRequested ? 'stopped' : t.takenOver ? 'held' : 'live'
+  const sigTxt = t.stopRequested ? 'stopped' : t.takenOver ? 'yours' : 'live'
+  const paused = t.takenOver || t.stopRequested
+  const frame = state.frames[t.id]
+  const img = frame
+    ? '<img src="data:image/jpeg;base64,' + frame + '">'
+    : '<img src="/tabs/' + t.id + '/frame?t=' + Date.now() + '" onerror="this.remove()">' +
+      '<div class="skel"><span class="k">awaiting signal</span></div>'
+  return '<article class="tile ' + status + '" id="tile-' + t.id + '">' +
+    '<div class="tile-top">' +
+      '<span class="sig"><span class="dot"></span>' + sigTxt + '</span>' +
+      '<span class="tid">' + esc(String(t.id)) + '</span>' +
+      '<span class="tele">' + fmtElapsed(t.createdAt || Date.now()) + ' · ' + (t.steps || 0) + ' steps</span>' +
+    '</div>' +
+    '<div class="view">' + img +
+      '<span class="corners"><i></i><i></i><i></i><i></i></span>' +
+    '</div>' +
+    '<div class="tile-body">' +
+      '<div class="t-title">' + esc(t.title || t.url) + '</div>' +
+      '<div class="t-url">' + esc(t.url) + '</div>' +
+      (t.label ? '<div class="task"><span class="k">task</span><span class="tx">' + esc(t.label) + '</span></div>' : '') +
+    '</div>' +
+    '<div class="tile-actions">' +
+      (paused
+        ? '<button class="btn solid" onclick="ctl(\'resume\',\'' + t.id + '\')">' + ICONS.play + 'Hand back</button>'
+        : '<button class="btn primary" onclick="ctl(\'takeover\',\'' + t.id + '\')">' + ICONS.hand + 'Take over</button>' +
+          '<button class="btn stop" onclick="ctl(\'stop\',\'' + t.id + '\')">' + ICONS.square + 'Stop</button>') +
+      '<button class="btn icon" title="Close tab" onclick="closeTile(\'' + t.id + '\')">' + ICONS.x + '</button>' +
+    '</div>' +
+  '</article>'
+}
+
+function render() {
+  $('grid').innerHTML = state.tabs.length ? state.tabs.map(tile).join('') : emptyState()
+  $('deckCount').innerHTML = state.tabs.length ? '<em>' + pad2(state.tabs.length) + '</em>' : pad2(0)
+}
+
+/* ---------- action log ---------- */
+function actionDetail(d) {
+  return d.tab + (d.label ? ' — ' + d.label : '') + (d.url ? ' — ' + d.url.replace(/^https?:\/\//, '').slice(0, 56) : '')
+}
+
+function pushAction(d, animate = true) {
+  state.actionCount += 1
+  $('evtCount').textContent = state.actionCount
+  $('deckActions').textContent = state.actionCount
+  const evts = $('evts')
+  const first = evts.firstElementChild
+  // collapse repeated identical tool+tab lines into a ×n counter
+  if (first && first.dataset.tool === d.tool && first.dataset.tab === String(d.tab)) {
+    const n = (Number(first.dataset.n) || 1) + 1
+    first.dataset.n = n
+    first.querySelector('.e-tool').innerHTML = esc(VERB[d.tool] || d.tool) + ' <span class="rep">×' + n + '</span>'
+    first.querySelector('.e-ts').textContent = new Date(d.ts).toLocaleTimeString()
+    first.querySelector('.e-det').textContent = actionDetail(d)
+    return
+  }
+  const el = document.createElement('div')
+  el.className = 'evt'
+  el.dataset.tool = d.tool
+  el.dataset.tab = String(d.tab)
+  if (!animate) el.style.animation = 'none'
+  el.innerHTML =
+    '<div class="e-head"><span class="e-tool">' + esc(VERB[d.tool] || d.tool) + '</span>' +
+    '<span class="e-ts">' + new Date(d.ts).toLocaleTimeString() + '</span></div>' +
+    '<div class="e-det">' + esc(actionDetail(d)) + '</div>'
+  evts.prepend(el)
+  while (evts.children.length > 80) evts.lastChild.remove()
+}
+
+/* ---------- websocket uplink ---------- */
+let ws
+function ctl(t, tab) { ws && ws.send(JSON.stringify({ t, tab })) }
+function closeTile(tab) {
+  const el = $('tile-' + tab)
+  if (el) el.classList.add('closing')
+  setTimeout(() => ctl('close', tab), 180)
+}
+
+function connect() {
+  ws = new WebSocket('ws://' + location.host + '/ws')
+  ws.onopen = () => {
+    $('hudLink').classList.add('ok')
+    $('hudLinkTxt').textContent = 'LIVE'
+  }
+  ws.onclose = () => {
+    $('hudLink').classList.remove('ok')
+    $('hudLinkTxt').textContent = 'OFFLINE'
+    setTimeout(connect, 1500)
+  }
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data)
+    if (msg.t === 'state') {
+      const prev = JSON.stringify(state.tabs)
+      state.tabs = msg.data.tabs
+      $('hudBrowser').textContent = msg.data.connected ? (msg.data.browser || msg.data.mode || '--') : '--'
+      $('deckMode').textContent = msg.data.connected
+        ? 'driving ' + (msg.data.browser || msg.data.mode)
+        : 'awaiting browser…'
+      if (prev !== JSON.stringify(state.tabs)) render()
+    }
+    if (msg.t === 'frame') {
+      state.frames[msg.tab] = msg.data
+      const view = document.querySelector('#tile-' + CSS.escape(String(msg.tab)) + ' .view')
+      if (view) {
+        const img = view.querySelector('img')
+        if (img) img.src = 'data:image/jpeg;base64,' + msg.data
+        else view.insertAdjacentHTML('afterbegin', '<img src="data:image/jpeg;base64,' + msg.data + '">')
+        const sk = view.querySelector('.skel')
+        if (sk) sk.remove()
+      }
+    }
+    if (msg.t === 'action') pushAction(msg.data)
+  }
+}
+render()
+connect()
+
+// feed survives refresh: seed from the daemon's ring buffer
+fetch('/actions?limit=60').then(r => r.json()).then(list => {
+  $('evts').innerHTML = ''
+  state.actionCount = 0
+  list.forEach(d => pushAction(d, false))
+}).catch(() => {})
+
+/* ================= replay / flight recorder ================= */
+$('navLive').onclick = () => {
+  stopPlay()
+  $('liveWrap').style.display = ''
+  $('replayWrap').style.display = 'none'
+  $('navLive').className = 'on'; $('navReplay').className = ''
+}
+$('navReplay').onclick = async () => {
+  $('liveWrap').style.display = 'none'
+  $('replayWrap').style.display = ''
+  $('navLive').className = ''; $('navReplay').className = 'on'
+  const { recorded } = await fetch('/sessions').then(r => r.json())
+  const sessions = recorded.filter(s => s.id !== 'default' || recorded.length === 1)
+  $('sCount').textContent = sessions.length
+  $('deckSessions').innerHTML = sessions.length ? '<em>' + pad2(sessions.length) + '</em>' : pad2(0)
+  $('rslist').innerHTML = sessions.map(s => {
+    const dur = s.endedAt ? Math.round((s.endedAt - s.startedAt) / 1000) + 's' : 'open'
+    return '<div class="scard" id="scard-' + s.id + '" onclick="loadReplay(\'' + s.id + '\')">' +
+      '<div class="sl">' + esc(s.label) + '</div>' +
+      '<div class="sm">' + new Date(s.startedAt).toLocaleString() + ' · ' + dur + '</div></div>'
+  }).join('') || '<div class="scard"><div class="sm">no recorded sessions yet</div></div>'
+  if (sessions.length) loadReplay(sessions[0].id)
+}
+
+function frames() {
+  const r = state.replay
+  return r.tabFilter === 'all' ? r.framesAll : r.framesAll.filter(f => f.tab === r.tabFilter)
+}
+
+function nearestFrame(ts) {
+  const fr = frames()
+  let best = 0
+  for (let i = 0; i < fr.length; i++) if (Math.abs(fr[i].ts - ts) < Math.abs(fr[best].ts - ts)) best = i
+  return best
+}
+
+async function loadReplay(id) {
+  stopPlay()
+  const data = await fetch('/replay/' + id).then(r => r.json())
+  state.replay = { id, meta: data.meta, actions: data.actions, framesAll: data.frames, tabFilter: 'all' }
+  document.querySelectorAll('.scard.on').forEach(el => el.classList.remove('on'))
+  const sc = $('scard-' + id)
+  if (sc) sc.classList.add('on')
+  const label = (data.meta && data.meta.label) || id
+  const dur = data.frames.length > 1 ? timecode(data.frames[data.frames.length - 1].ts - data.frames[0].ts) : '00:00.0'
+  $('deckSel').textContent = String(label).slice(0, 34) + ' · ' + dur
+  const tabs = [...new Set(data.frames.map(f => f.tab))]
+  $('rtabs').innerHTML = tabs.length > 1
+    ? '<button class="on" id="rtab-all" onclick="setTabFilter(\'all\')">all tabs</button>' +
+      tabs.map(t => '<button id="rtab-' + t + '" onclick="setTabFilter(\'' + t + '\')">' + esc(String(t)) + '</button>').join('')
+    : ''
+  rebuildTrack()
+}
+
+function setTabFilter(t) {
+  stopPlay()
+  state.replay.tabFilter = t
+  document.querySelectorAll('#rtabs button').forEach(b => b.classList.remove('on'))
+  const btn = $('rtab-' + t)
+  if (btn) btn.classList.add('on')
+  rebuildTrack()
+}
+
+function rebuildTrack() {
+  const r = state.replay
+  const fr = frames()
+  $('rscrub').max = Math.max(0, fr.length - 1)
+  $('rscrub').value = 0
+  const t0 = fr[0]?.ts || (r.actions[0]?.ts ?? 0)
+  const t1 = fr[fr.length - 1]?.ts || t0 + 1
+  const acts = r.tabFilter === 'all' ? r.actions : r.actions.filter(a => a.tab === r.tabFilter)
+  r.acts = acts
+  $('rCount').textContent = acts.length
+  $('rmarks').innerHTML = acts.map((a, i) =>
+    '<i style="left:' + Math.min(100, Math.max(0, ((a.ts - t0) / (t1 - t0)) * 100)) + '%" title="' +
+    esc(VERB[a.tool] || a.tool) + '" onclick="jumpAction(' + i + ')"></i>'
+  ).join('')
+  $('rlist').innerHTML = acts.map((a, i) => {
+    const what = VERB[a.tool] || a.tool
+    const detail = a.label || a.url || a.expression || a.key || (a.ref !== undefined ? 'ref ' + a.ref : '')
+    return '<div class="ritem" id="ritem-' + i + '" onclick="jumpAction(' + i + ')">' +
+      '<span class="t">' + ((a.ts - t0) / 1000).toFixed(1) + 's</span>' +
+      '<span class="tool">' + esc(what) + '</span>' +
+      '<span class="d">' + esc(String(detail).slice(0, 60)) + '</span></div>'
+  }).join('') || '<div class="ritem"><span class="d">no recorded actions</span></div>'
+  showFrame(0)
+}
+
+function jumpAction(i) {
+  stopPlay()
+  const a = state.replay.acts[i]
+  const f = nearestFrame(a.ts)
+  $('rscrub').value = f
+  showFrame(f)
+}
+
+function showFrame(i) {
+  const r = state.replay
+  const fr = frames()
+  if (!r || !fr.length) {
+    $('rimg').removeAttribute('src')
+    $('ract').textContent = 'no frames recorded for this session'
+    $('rtc').textContent = '00:00.0'
+    $('rtot').textContent = '/ 00:00.0'
+    return
+  }
+  const f = fr[i]
+  $('rimg').src = '/replay/' + r.id + '/frame/' + f.file
+  const t0 = fr[0].ts
+  $('rtc').textContent = timecode(f.ts - t0)
+  $('rtot').textContent = '/ ' + timecode(fr[fr.length - 1].ts - t0)
+  let lastIdx = -1
+  r.acts.forEach((a, idx) => { if (a.ts <= f.ts + 200) lastIdx = idx })
+  const last = r.acts[lastIdx]
+  $('ract').innerHTML = last
+    ? '<b>' + esc(VERB[last.tool] || last.tool) + '</b> ' + esc(actionDetail(last))
+    : ''
+  document.querySelectorAll('.ritem.now').forEach(el => el.classList.remove('now'))
+  const cur = $('ritem-' + lastIdx)
+  if (cur) { cur.classList.add('now'); cur.scrollIntoView({ block: 'nearest' }) }
+}
+
+// True-speed playback: frame delays follow the real recorded timestamps.
+function stopPlay() {
+  if (state.playing) clearTimeout(state.playing)
+  state.playing = null
+  $('rplayIcon').innerHTML = '<path d="M3.5 2 L11.5 7 L3.5 12 Z" fill="currentColor"/>'
+}
+
+function startPlay() {
+  const fr = frames()
+  if (!fr.length) return
+  $('rplayIcon').innerHTML =
+    '<rect x="3" y="2.5" width="3" height="9" rx="1" fill="currentColor"/>' +
+    '<rect x="8" y="2.5" width="3" height="9" rx="1" fill="currentColor"/>'
+  const step = () => {
+    const s = $('rscrub')
+    const i = Number(s.value)
+    if (i >= Number(s.max)) { stopPlay(); return }
+    const speed = Number($('rspeed').value) || 2
+    const delay = Math.min(2500, Math.max(40, (fr[i + 1].ts - fr[i].ts) / speed))
+    state.playing = setTimeout(() => {
+      s.value = i + 1
+      showFrame(i + 1)
+      step()
+    }, delay)
+  }
+  step()
+}
+
+$('rscrub').oninput = e => { stopPlay(); showFrame(Number(e.target.value)) }
+$('rplay').onclick = () => state.playing ? stopPlay() : startPlay()
+document.addEventListener('keydown', e => {
+  if ($('replayWrap').style.display === 'none') return
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return
+  if (e.code === 'Space') { e.preventDefault(); $('rplay').click() }
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    e.preventDefault(); stopPlay()
+    const s = $('rscrub')
+    s.value = Math.min(Number(s.max), Math.max(0, Number(s.value) + (e.key === 'ArrowRight' ? 1 : -1)))
+    showFrame(Number(s.value))
+  }
+})
+</script>
+</body>
+</html>

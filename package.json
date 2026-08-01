@@ -1,99 +1,19 @@
 {
-  "name": "galho-browser",
-  "productName": "Galho",
-  "version": "0.2.0",
-  "description": "Arc-inspired, agent-native browser built on Electron",
+  "name": "canopy",
+  "version": "0.1.0",
+  "description": "Canopy — watch and drive your existing browser (Arc/Chrome) with AI agents: MCP + CDP daemon, live cockpit with replay, visible AI cursor.",
+  "type": "module",
   "license": "MIT",
-  "author": {
-    "name": "Joao Barros",
-    "email": "augustoj311@gmail.com"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/arvoreeducacao/galho-browser.git"
-  },
-  "main": "src/main.js",
   "bin": {
-    "galho": "bin/galho.js"
+    "canopy": "bin/canopy.js"
   },
   "scripts": {
-    "postinstall": "node src/skill-install.js",
-    "start": "electron .",
-    "dist": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
-    "dist:linux": "electron-builder --linux"
-  },
-  "devDependencies": {
-    "electron": "^37.2.0",
-    "electron-builder": "^26.0.12"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "electron-builder"
-    ]
-  },
-  "build": {
-    "appId": "com.arvore.galho",
-    "productName": "Galho",
-    "files": [
-      "src/**/*",
-      "ui/**/*",
-      "skill/**/*",
-      "build/icon.png"
-    ],
-    "directories": {
-      "output": "dist"
-    },
-    "mac": {
-      "icon": "build/icon.icns",
-      "category": "public.app-category.productivity",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "win": {
-      "icon": "build/icon.png",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "icon": "build/icon.png",
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Network"
-    },
-    "protocols": [
-      {
-        "name": "Web URL",
-        "schemes": [
-          "http",
-          "https"
-        ]
-      }
-    ]
+    "start": "node bin/canopy.js",
+    "chrome": "node bin/canopy.js --launch-chrome"
   },
   "dependencies": {
-    "electron-chrome-extensions": "^4.9.0",
-    "electron-chrome-web-store": "^0.13.0"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
   }
 }
