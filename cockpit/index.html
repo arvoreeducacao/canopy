@@ -443,7 +443,7 @@
     <div class="spacer"></div>
     <div class="stamp">
       <span class="k">daemon</span>
-      <span class="v">127.0.0.1:4664</span>
+      <span class="v" id="daemonHost">127.0.0.1:4664</span>
     </div>
   </div>
   <main id="live">
@@ -513,6 +513,17 @@
 <script>
 const $ = id => document.getElementById(id)
 const esc = s => (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+// Cloud mode: the daemon gates everything behind the token. Open the cockpit
+// once as /?token=<token> — it lands in localStorage and leaves the URL.
+const TOKEN = (() => {
+  const q = new URLSearchParams(location.search)
+  if (q.get('token')) {
+    localStorage.setItem('canopy-token', q.get('token'))
+    history.replaceState(null, '', location.pathname)
+  }
+  return localStorage.getItem('canopy-token') || ''
+})()
+const tok = url => TOKEN ? url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) : url
 const state = { tabs: [], frames: {}, replay: null, playing: null, actionCount: 0 }
 
 const ICONS = {
@@ -553,7 +564,13 @@ setInterval(() => {
 /* ---------- live tiles ---------- */
 // Shell substitution keeps the actual token out of this page (anything served
 // over HTTP is readable by any local process — the shell reads the file instead).
-const MCP_CMD = 'claude mcp add --transport http canopy http://127.0.0.1:4664/mcp --header "Authorization: Bearer $(cat ~/.canopy/token)"'
+// In cloud mode the daemon injects CANOPY_MCP_ORIGIN (the token-auth domain,
+// distinct from this SSO-protected one) and the hint becomes a placeholder.
+window.CANOPY_MCP_ORIGIN = null
+const MCP_ORIGIN = window.CANOPY_MCP_ORIGIN || location.origin
+const MCP_TOKEN_HINT = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(MCP_ORIGIN) ? '$(cat ~/.canopy/token)' : '<token>'
+const MCP_CMD = 'claude mcp add --transport http canopy ' + MCP_ORIGIN + '/mcp --header "Authorization: Bearer ' + MCP_TOKEN_HINT + '"'
+$('daemonHost').textContent = location.host
 
 function emptyState() {
   return '<div class="empty">' +
@@ -577,7 +594,7 @@ function tile(t) {
   const frame = state.frames[t.id]
   const img = frame
     ? '<img src="data:image/jpeg;base64,' + frame + '">'
-    : '<img src="/tabs/' + t.id + '/frame?t=' + Date.now() + '" onerror="this.remove()">' +
+    : '<img src="' + tok('/tabs/' + t.id + '/frame?t=' + Date.now()) + '" onerror="this.remove()">' +
       '<div class="skel"><span class="k">awaiting signal</span></div>'
   return '<article class="tile ' + status + '" id="tile-' + t.id + '">' +
     '<div class="tile-top">' +
@@ -651,7 +668,7 @@ function closeTile(tab) {
 }
 
 function connect() {
-  ws = new WebSocket('ws://' + location.host + '/ws')
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + tok('/ws'))
   ws.onopen = () => {
     $('hudLink').classList.add('ok')
     $('hudLinkTxt').textContent = 'LIVE'
@@ -690,7 +707,7 @@ render()
 connect()
 
 // feed survives refresh: seed from the daemon's ring buffer
-fetch('/actions?limit=60').then(r => r.json()).then(list => {
+fetch(tok('/actions?limit=60')).then(r => r.json()).then(list => {
   $('evts').innerHTML = ''
   state.actionCount = 0
   list.forEach(d => pushAction(d, false))
@@ -707,7 +724,7 @@ $('navReplay').onclick = async () => {
   $('liveWrap').style.display = 'none'
   $('replayWrap').style.display = ''
   $('navLive').className = ''; $('navReplay').className = 'on'
-  const { recorded } = await fetch('/sessions').then(r => r.json())
+  const { recorded } = await fetch(tok('/sessions')).then(r => r.json())
   const sessions = recorded.filter(s => s.id !== 'default' || recorded.length === 1)
   $('sCount').textContent = sessions.length
   $('deckSessions').innerHTML = sessions.length ? '<em>' + pad2(sessions.length) + '</em>' : pad2(0)
@@ -734,7 +751,7 @@ function nearestFrame(ts) {
 
 async function loadReplay(id) {
   stopPlay()
-  const data = await fetch('/replay/' + id).then(r => r.json())
+  const data = await fetch(tok('/replay/' + id)).then(r => r.json())
   state.replay = { id, meta: data.meta, actions: data.actions, framesAll: data.frames, tabFilter: 'all' }
   document.querySelectorAll('.scard.on').forEach(el => el.classList.remove('on'))
   const sc = $('scard-' + id)
@@ -803,7 +820,7 @@ function showFrame(i) {
     return
   }
   const f = fr[i]
-  $('rimg').src = '/replay/' + r.id + '/frame/' + f.file
+  $('rimg').src = tok('/replay/' + r.id + '/frame/' + f.file)
   const t0 = fr[0].ts
   $('rtc').textContent = timecode(f.ts - t0)
   $('rtot').textContent = '/ ' + timecode(fr[fr.length - 1].ts - t0)

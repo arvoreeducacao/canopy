@@ -15,7 +15,11 @@ import { mcpHandler } from './mcp.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222', dataDir } = {}) {
+export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost = '', ssoHost = '', ssoHeader = 'x-auth-request-email', mcpOrigin = '', cdpUrl = 'http://127.0.0.1:9222', dataDir } = {}) {
+  // Cloud mode: bound beyond loopback, every route and socket is token-gated
+  // (only the cockpit shell stays open — it holds no data without the token).
+  const isPublic = !/^(127\.0\.0\.1|localhost|::1)$/.test(bind)
+  const publicHosts = publicHost.split(',').map(s => s.trim()).filter(Boolean)
   const base = dataDir || path.join(os.homedir(), '.canopy')
   mkdirSync(base, { recursive: true })
   const recorder = new Recorder(path.join(base, 'sessions'))
@@ -25,17 +29,30 @@ export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222
   // can drive the user's logged-in browser. The token gates every control
   // surface; the cockpit UI keeps its read-only feeds. CANOPY_NO_AUTH=1 opts out.
   const tokenPath = path.join(base, 'token')
-  let token = ''
-  try { token = readFileSync(tokenPath, 'utf8').trim() } catch {}
+  let token = (process.env.CANOPY_TOKEN || '').trim()
+  if (token) writeFileSync(tokenPath, token + '\n', { mode: 0o600 })
+  try { if (!token) token = readFileSync(tokenPath, 'utf8').trim() } catch {}
   if (!token) {
     token = crypto.randomBytes(24).toString('hex')
     writeFileSync(tokenPath, token + '\n', { mode: 0o600 })
   }
   const noAuth = process.env.CANOPY_NO_AUTH === '1'
+  if (isPublic && noAuth) throw new Error('CANOPY_NO_AUTH=1 with a non-loopback bind would expose the browser to the internet — refusing to start')
+  // SSO trust: Traefik routes by Host, so a request arriving with the SSO
+  // host necessarily went through the forwardAuth middleware, which also
+  // overwrites the oauth2-proxy identity header — its presence means a
+  // logged-in user. On any other host the header is client-controlled noise.
+  const ssoOk = req => !!ssoHost
+    && (req.headers.host || '').replace(/:\d+$/, '') === ssoHost
+    && !!req.headers[ssoHeader]
   const authed = (req, url) => noAuth
     || req.headers.authorization === `Bearer ${token}`
     || url.searchParams.get('token') === token
+    || ssoOk(req)
   const needsAuth = (req, url) => {
+    // Public bind: recordings, replays and the action feed are as sensitive as
+    // control — only the cockpit shell (static HTML) is served without a token.
+    if (isPublic) return url.pathname !== '/' && url.pathname !== '/cockpit'
     if (url.pathname === '/mcp') return true
     if (url.pathname === '/ext-tabs') return true
     if (req.method !== 'GET') return true
@@ -90,11 +107,20 @@ export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222
 
   const rest = restHandler(controller, recorder)
   const mcp = mcpHandler(controller)
-  const cockpitHtml = () => readFileSync(path.join(__dirname, '..', 'cockpit', 'index.html'))
+  const cockpitHtml = () => {
+    let html = readFileSync(path.join(__dirname, '..', 'cockpit', 'index.html'), 'utf8')
+    if (mcpOrigin) html = html.replace('window.CANOPY_MCP_ORIGIN = null', `window.CANOPY_MCP_ORIGIN = ${JSON.stringify(mcpOrigin)}`)
+    return html
+  }
 
   // DNS-rebinding guard: a hostile page can point its own domain at 127.0.0.1
-  // and fetch us same-origin — the Host header gives it away.
-  const hostOk = req => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host || '')
+  // and fetch us same-origin — the Host header gives it away. In cloud mode
+  // the reverse proxy forwards the public hostname, so that one is allowed too.
+  const hostOk = req => {
+    const host = req.headers.host || ''
+    if (/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)) return true
+    return publicHosts.includes(host.replace(/:\d+$/, ''))
+  }
 
   const server = http.createServer(async (req, res) => {
     if (!hostOk(req)) {
@@ -119,7 +145,11 @@ export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222
 
   server.on('upgrade', (req, socket, head) => {
     if (!hostOk(req)) return socket.destroy()
-    const { pathname } = new URL(req.url, 'http://localhost')
+    const url = new URL(req.url, 'http://localhost')
+    // The cockpit socket carries frames and accepts takeover/stop/close;
+    // beyond loopback both sockets require the token (?token= or Bearer).
+    if (isPublic && !authed(req, url)) return socket.destroy()
+    const { pathname } = url
     if (pathname === '/ext') {
       wssExt.handleUpgrade(req, socket, head, ws => {
         ws.once('message', raw => {
@@ -168,17 +198,20 @@ export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222
 
   await new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(port, '127.0.0.1', resolve)
+    server.listen(port, bind, resolve)
   })
 
-  console.log(`[canopy] cockpit  http://127.0.0.1:${port}/`)
-  console.log(`[canopy] mcp      http://127.0.0.1:${port}/mcp`)
-  console.log(`[canopy] rest     http://127.0.0.1:${port}/status`)
+  const shownHost = publicHosts[0] || (isPublic ? bind : '127.0.0.1')
+  const origin = publicHosts[0] ? `https://${publicHosts[0]}` : `http://${shownHost}:${port}`
+  console.log(`[canopy] bind     ${bind}:${port}${isPublic ? ' (público — tudo exige token)' : ''}`)
+  console.log(`[canopy] cockpit  ${origin}/${isPublic ? '?token=<token>' : ''}`)
+  console.log(`[canopy] mcp      ${origin}/mcp`)
+  console.log(`[canopy] rest     ${origin}/status`)
   if (noAuth) {
     console.log('[canopy] auth     DESLIGADA (CANOPY_NO_AUTH=1)')
   } else {
     console.log(`[canopy] auth     token at ${tokenPath}`)
-    console.log(`[canopy] connect: claude mcp add --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`)
+    console.log(`[canopy] connect: claude mcp add --transport http canopy ${origin}/mcp --header "Authorization: Bearer ${token}"`)
   }
   return { server, controller, recorder, token }
 }

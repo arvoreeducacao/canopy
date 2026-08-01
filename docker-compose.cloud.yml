@@ -1,0 +1,26 @@
+# Cloud mode example — a self-hosted browser-in-the-cloud with the cockpit.
+# See "Cloud mode" in the README. Put a TLS-terminating reverse proxy in front
+# (Traefik, Caddy, nginx) and point CANOPY_PUBLIC_HOST at its hostname.
+services:
+  canopy:
+    build: .
+    restart: unless-stopped
+    environment:
+      # The API key agents use on /mcp and REST. Never run cloud mode without it.
+      - CANOPY_TOKEN=${CANOPY_TOKEN:?set a strong random token}
+      # Hostname(s) your proxy forwards — comma-separated (Host-header allowlist).
+      - CANOPY_PUBLIC_HOST=${CANOPY_PUBLIC_HOST:?e.g. canopy.example.com}
+      # Optional: mark one host as SSO-protected by your proxy's forward-auth
+      # (requests on it carrying CANOPY_SSO_HEADER count as authenticated).
+      # - CANOPY_SSO_HOST=canopy.example.com
+      # - CANOPY_SSO_HEADER=x-auth-request-email
+      # Optional: the origin the cockpit shows in its "connect an agent" command.
+      # - CANOPY_MCP_ORIGIN=https://canopy-mcp.example.com
+    volumes:
+      - canopy-data:/data # token, recordings and the Chromium profile (logins persist)
+    expose:
+      - 4664
+    shm_size: 1gb
+
+volumes:
+  canopy-data:

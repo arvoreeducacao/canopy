@@ -188,8 +188,14 @@ canopy screenshot <tab> [f]  save a PNG screenshot of the tab`)
 // ---------------- daemon mode ----------------
 const { startDaemon } = await import('../src/daemon.js')
 
-const port = Number(opt('--port', 4664))
-const cdpPort = Number(opt('--cdp-port', 9222))
+const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
+const cdpPort = Number(opt('--cdp-port', process.env.CANOPY_CDP_PORT || 9222))
+const bind = opt('--bind', process.env.CANOPY_BIND || '127.0.0.1')
+const publicHost = opt('--public-host', process.env.CANOPY_PUBLIC_HOST || '')
+const ssoHost = opt('--sso-host', process.env.CANOPY_SSO_HOST || '')
+const ssoHeader = (opt('--sso-header', process.env.CANOPY_SSO_HEADER || 'x-auth-request-email')).toLowerCase()
+const mcpOrigin = opt('--mcp-origin', process.env.CANOPY_MCP_ORIGIN || '')
+const dataDir = opt('--data-dir', process.env.CANOPY_DATA_DIR || '') || undefined
 
 // Branded Chrome 137+ ignores --load-extension; Chrome for Testing still honors
 // it, so the dev browser gets the extension (tab grouping, focus-pause).
@@ -232,7 +238,7 @@ function findSystemChrome() {
   return null
 }
 
-await startDaemon({ port, cdpUrl: `http://127.0.0.1:${cdpPort}` })
+await startDaemon({ port, bind, publicHost, ssoHost, ssoHeader, mcpOrigin, dataDir, cdpUrl: process.env.CANOPY_CDP_URL || `http://127.0.0.1:${cdpPort}` })
 
 if (flag('--launch-chrome')) {
   const cft = findChromeForTesting()
