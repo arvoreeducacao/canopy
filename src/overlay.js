@@ -32,30 +32,45 @@ export const OVERLAY_SETUP = `(() => {
   cursor.appendChild(arrow)
   const veil = document.createElement('div')
   veil.id = '__canopy_veil'
-  veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;background-color:rgba(12,8,24,0.32);overflow:hidden;opacity:0;transition:opacity 0.5s'
-  // Twinkling mesh: three offset dot grids pulsing at co-prime durations —
-  // the interference reads as random sparkling, no dot ever "walks".
-  const meshLayer = (size, offset, color, dur, delay) => {
-    const m = document.createElement('div')
-    m.style.cssText = 'position:absolute;inset:0;background-image:radial-gradient(' + color + ' 1px,transparent 1.5px);background-size:' + size + 'px ' + size + 'px;background-position:' + offset + ';animation:__canopy_twinkle ' + dur + 's ease-in-out ' + delay + 's infinite'
-    return m
-  }
-  veil.appendChild(meshLayer(14, '0 0', 'rgba(255,255,255,0.11)', 2.3, 0))
-  veil.appendChild(meshLayer(22, '7px 11px', 'rgba(255,255,255,0.09)', 3.7, 0.9))
-  veil.appendChild(meshLayer(30, '15px 4px', 'rgba(245,166,35,0.14)', 5.9, 2.1))
+  veil.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:none;background-color:rgba(12,8,24,0.28);opacity:0;transition:opacity 0.5s'
+  // Presence glow, Dia/Apple-Intelligence style: a huge conic gradient slowly
+  // rotating behind an edge-band mask, blurred and breathing — light flowing
+  // around the viewport border instead of anything blinking in unison.
   const glow = document.createElement('div')
   glow.id = '__canopy_glow'
-  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;box-shadow:inset 0 0 0 2px rgba(255,255,255,0.30),inset 0 0 36px rgba(255,255,255,0.10);border-radius:8px;opacity:0;transition:opacity 0.4s'
+  glow.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:0;transition:opacity 0.6s;overflow:hidden;padding:16px;' +
+    'mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);' +
+    '-webkit-mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)'
+  const swirl = document.createElement('div')
+  swirl.style.cssText = 'position:absolute;left:50%;top:50%;width:220vmax;height:220vmax;margin:-110vmax 0 0 -110vmax;border-radius:50%;filter:blur(18px);' +
+    'background:conic-gradient(from 0deg,rgba(255,178,36,0.85),rgba(255,207,107,0.35) 12%,transparent 30%,rgba(61,220,133,0.6) 44%,transparent 58%,rgba(255,178,36,0.75) 72%,transparent 88%,rgba(255,178,36,0.85));' +
+    'animation:__canopy_swirl 9s linear infinite,__canopy_breathe 3.6s ease-in-out infinite'
+  const ring = document.createElement('div')
+  ring.style.cssText = 'position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.20),inset 0 0 34px rgba(255,178,36,0.10)'
+  glow.appendChild(swirl)
+  glow.appendChild(ring)
   const pill = document.createElement('div')
   pill.id = '__canopy_pill'
   pill.style.cssText = 'position:fixed;z-index:2147483647;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:15px;border:1px solid rgba(255,255,255,0.16);background:rgba(22,20,32,0.96);box-shadow:0 12px 40px rgba(0,0,0,0.45);font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 0.4s,transform 0.4s'
   const spinner = document.createElement('div')
   spinner.style.cssText = 'width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.85);border-top-color:transparent;animation:__canopy_spin 0.9s linear infinite'
-  const styleEl = document.createElement('style')
-  styleEl.textContent = '@keyframes __canopy_spin{to{transform:rotate(360deg)}}' +
-    '@keyframes __canopy_twinkle{0%,100%{opacity:1}50%{opacity:0.25}}' +
+  const KEYFRAMES = '@keyframes __canopy_spin{to{transform:rotate(360deg)}}' +
+    '@keyframes __canopy_swirl{to{transform:rotate(360deg)}}' +
+    '@keyframes __canopy_breathe{0%,100%{opacity:0.55}50%{opacity:1}}' +
     '@keyframes __canopy_keypop{0%{transform:translateY(8px) scale(.9);opacity:0}12%{transform:translateY(0) scale(1);opacity:1}82%{opacity:1}100%{opacity:0}}' +
     '@keyframes __canopy_pillpulse{0%,100%{transform:translateX(-50%) translateY(0) scale(1)}50%{transform:translateX(-50%) translateY(0) scale(1.05)}}'
+  // A <style> element is subject to the page's CSP (style-src) and silently
+  // dies on strict sites, killing every animation. Constructed stylesheets are
+  // CSSOM and bypass CSP; keep the <style> path only as a fallback.
+  let styleEl = null
+  try {
+    const sheet = new CSSStyleSheet()
+    sheet.replaceSync(KEYFRAMES)
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+  } catch {
+    styleEl = document.createElement('style')
+    styleEl.textContent = KEYFRAMES
+  }
   const textWrap = document.createElement('div')
   const labelEl = document.createElement('div')
   labelEl.style.cssText = 'font-size:13px;font-weight:600;color:rgba(250,248,255,0.95);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
@@ -89,7 +104,7 @@ export const OVERLAY_SETUP = `(() => {
   keys.id = '__canopy_keys'
   keys.style.cssText = 'position:fixed;z-index:2147483647;right:22px;bottom:26px;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none;font-family:ui-monospace,SF Mono,Menlo,monospace'
   if (document.documentElement) {
-    document.documentElement.appendChild(styleEl)
+    if (styleEl) document.documentElement.appendChild(styleEl)
     document.documentElement.appendChild(veil)
     document.documentElement.appendChild(glow)
     document.documentElement.appendChild(cursor)

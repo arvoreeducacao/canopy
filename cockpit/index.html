@@ -80,7 +80,6 @@
     backdrop-filter: blur(12px);
   }
   .brand { display: flex; align-items: center; gap: 12px; min-width: 220px; }
-  .brand .mark { width: 28px; height: 28px; flex: none; }
   .brand .names { line-height: 1; }
   .brand .n1 {
     font-family: var(--mono); font-size: 13.5px; font-weight: 600;
@@ -185,13 +184,6 @@
   @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
   .tile:hover { transform: translateY(-2px); border-color: var(--line-2); }
   .tile.closing { opacity: 0; transform: scale(.97); }
-  .tile::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; z-index: 5;
-    background: var(--faint); transition: background .3s;
-  }
-  .tile.live::before { background: var(--green); }
-  .tile.held::before { background: var(--amber); }
-  .tile.stopped::before { background: var(--red); }
 
   .tile-top {
     display: flex; align-items: center; gap: 12px;
@@ -298,7 +290,6 @@
 
   /* ================= empty state ================= */
   .empty { grid-column: 1 / -1; text-align: center; padding: 84px 20px 70px; }
-  .empty .mark { width: 52px; height: 52px; margin: 0 auto 22px; display: block; }
   .empty h3 { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; }
   .empty p { font-size: 12.5px; color: var(--dim); margin: 10px 0 26px; }
   .term {
@@ -404,7 +395,7 @@
     cursor: pointer; transition: background .13s;
   }
   .ritem:hover { background: var(--panel-2); }
-  .ritem.now { background: var(--amber-dim); box-shadow: inset 2px 0 0 var(--amber); }
+  .ritem.now { background: var(--amber-dim); }
   .ritem .t { font-family: var(--mono); font-size: 10px; color: var(--faint); flex: none; width: 46px; font-variant-numeric: tabular-nums; }
   .ritem .tool { font-family: var(--mono); font-size: 9.5px; font-weight: 600; color: var(--amber); text-transform: uppercase; letter-spacing: .08em; flex: none; }
   .ritem.now .tool { color: var(--amber-hi); }
@@ -417,24 +408,8 @@
 </head>
 <body>
 
-<!-- brand mark: branch-as-antenna inside viewfinder brackets, drawn once, reused -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <g id="canopy-mark">
-      <path d="M4 9 V4 H9 M25 4 H30 V9 M30 25 V30 H25 M9 30 H4 V25"
-            fill="none" stroke="#545b66" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M17 27 V10 M17 14.5 C13.6 13.2 11.6 11 11.2 7.8 M17 19.5 C20.4 18.2 22.4 16 22.8 12.8"
-            fill="none" stroke="#ffb224" stroke-width="2.1" stroke-linecap="round"/>
-      <circle cx="11" cy="7" r="1.7" fill="#ffb224"/>
-      <circle cx="23" cy="12" r="1.7" fill="#3ddc85"/>
-      <circle cx="17" cy="9.4" r="1.4" fill="#ffb224" opacity=".55"/>
-    </g>
-  </defs>
-</svg>
-
 <header>
   <div class="brand">
-    <svg class="mark" viewBox="0 0 34 34"><use href="#canopy-mark"/></svg>
     <div class="names">
       <div class="n1">CANOPY<em>_</em></div>
       <div class="n2">Mission Control</div>
@@ -580,7 +555,6 @@ const MCP_CMD = 'claude mcp add --transport http canopy http://127.0.0.1:4664/mc
 
 function emptyState() {
   return '<div class="empty">' +
-    '<svg class="mark" viewBox="0 0 34 34"><use href="#canopy-mark"/></svg>' +
     '<h3>No active agents</h3>' +
     '<p>Connect Claude Code and ask for anything that touches the web.</p>' +
     '<div class="term" onclick="copyCmd(this)">' +
