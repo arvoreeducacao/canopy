@@ -1,13 +1,13 @@
 ---
 name: canopy
-description: Drive the user's real browser (Arc/Chrome) through the Canopy daemon — open tabs in parallel that never steal focus, act with a visible AI cursor the user can watch in a live cockpit, mine the page's API calls to build cheap automations, and replay every session. Use whenever a task involves a website, the user's logged-in sessions, form filling, scraping, or testing a web app. Triggers: "abre no browser", "usa meu login", "preenche o form", "pega os dados do site", "automatiza isso", any browser task.
+description: Drive the user's real browser (Arc/Chrome) through the Canopy daemon — open tabs in parallel that never steal focus, act with a visible AI cursor the user can watch in a live cockpit, mine the page's API calls to build cheap automations, and replay every session. Use whenever a task involves a website, the user's logged-in sessions, form filling, scraping, or testing a web app. Triggers: "open it in the browser", "use my login", "fill in the form", "grab the data from that site", "automate this", any browser task.
 metadata:
   version: "0.1.0"
 ---
 
 # canopy
 
-MCP server `canopy` at `http://127.0.0.1:4664/mcp` (add once: `claude mcp add --transport http canopy http://127.0.0.1:4664/mcp`). If `browser_status` fails, start it: `node ~/Arvore/canopy/bin/canopy.js --launch-chrome &` — the user can also watch everything at `http://127.0.0.1:4664/`.
+MCP server `canopy` at `http://127.0.0.1:4664/mcp` (add once: `claude mcp add --transport http canopy http://127.0.0.1:4664/mcp`). If `browser_status` fails the daemon is not running: start it with `canopy --launch-chrome &`, or `node <path-to-canopy>/bin/canopy.js --launch-chrome &` if it is not linked globally — ask the user where the repo lives rather than guessing. The user can watch everything at `http://127.0.0.1:4664/`.
 
 ## Golden rules
 

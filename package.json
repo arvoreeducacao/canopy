@@ -4,9 +4,42 @@
   "description": "Canopy — watch and drive your existing browser (Arc/Chrome) with AI agents: MCP + CDP daemon, live cockpit with replay, visible AI cursor.",
   "type": "module",
   "license": "MIT",
+  "author": "Árvore Educação",
+  "homepage": "https://github.com/arvoreeducacao/canopy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arvoreeducacao/canopy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arvoreeducacao/canopy/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cdp",
+    "chrome-devtools-protocol",
+    "browser-automation",
+    "ai-agent",
+    "claude-code",
+    "arc",
+    "chrome-extension"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "canopy": "bin/canopy.js"
   },
+  "files": [
+    "bin",
+    "src",
+    "cockpit",
+    "extension",
+    "skills",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node bin/canopy.js",
     "chrome": "node bin/canopy.js --launch-chrome"

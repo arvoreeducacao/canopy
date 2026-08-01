@@ -44,9 +44,9 @@ function connect() {
         const tab = await chrome.tabs.create({ url: msg.url, active: false })
         reply({ ok: true, result: { tabId: tab.id } })
       } else if (msg.op === 'tabs.group') {
-        // All agent tabs live in one collapsed-friendly amber group ("Agentes")
+        // All agent tabs live in one collapsed-friendly amber group ("AI")
         const tab = await chrome.tabs.get(msg.tabId)
-        const title = msg.title || 'Agentes'
+        const title = msg.title || 'AI'
         let groupId = null
         try {
           const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title })
