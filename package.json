@@ -1,6 +1,6 @@
 {
   "name": "@arvoretech/canopy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publishConfig": {
     "access": "public"
   },
@@ -51,8 +51,5 @@
     "@modelcontextprotocol/sdk": "^1.12.0",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
-  },
-  "devDependencies": {
-    "@browserbasehq/stagehand": "^3.7.1"
   }
 }

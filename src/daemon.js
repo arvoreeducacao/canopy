@@ -108,7 +108,7 @@ export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222
     }
     if (needsAuth(req, url) && !authed(req, url)) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ error: `unauthorized — pass "Authorization: Bearer <token>" (token em ${tokenPath})` }))
+      return res.end(JSON.stringify({ error: `unauthorized — pass "Authorization: Bearer <token>" (token at ${tokenPath})` }))
     }
     if (url.pathname === '/mcp') return mcp(req, res)
     return rest(req, res, url)
@@ -177,8 +177,8 @@ export async function startDaemon({ port = 4664, cdpUrl = 'http://127.0.0.1:9222
   if (noAuth) {
     console.log('[canopy] auth     DESLIGADA (CANOPY_NO_AUTH=1)')
   } else {
-    console.log(`[canopy] auth     token em ${tokenPath}`)
-    console.log(`[canopy] conectar: claude mcp add --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`)
+    console.log(`[canopy] auth     token at ${tokenPath}`)
+    console.log(`[canopy] connect: claude mcp add --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`)
   }
   return { server, controller, recorder, token }
 }

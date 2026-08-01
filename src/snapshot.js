@@ -1,6 +1,6 @@
 // Page snapshot with stable refs: an injected walker tags interactive elements
 // with data-canopy-ref and returns a compact list the model can act on.
-// Stagehand-style act-by-ref without needing the accessibility domain, so it
+// Act-by-ref without needing the accessibility domain, so it
 // works identically through the port and extension transports.
 
 export const SNAPSHOT_JS = `(() => {

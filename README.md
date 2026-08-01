@@ -36,12 +36,14 @@ Requires Node ≥ 20. The daemon itself is portable; the `--launch-chrome` helpe
 macOS-only for now (see [Limitations](#limitations)).
 
 ```bash
-npx @arvoretech/canopy
-claude mcp add --transport http canopy http://127.0.0.1:4664/mcp \
-  --header "Authorization: Bearer $(cat ~/.canopy/token)"
+npx @arvoretech/canopy setup   # mints the token, registers the MCP server in Claude Code, installs the skill
+npx @arvoretech/canopy         # starts the daemon
 ```
 
-(Or from a clone: `pnpm install && node bin/canopy.js`.)
+`setup` is idempotent; add `--launchd` (macOS) to also start the daemon at login. If you don't
+use Claude Code, `setup` prints the equivalent `claude mcp add` command so you can adapt it to
+your agent — the MCP endpoint is `http://127.0.0.1:4664/mcp` with
+`Authorization: Bearer $(cat ~/.canopy/token)`. (Or from a clone: `pnpm install && node bin/canopy.js`.)
 
 The daemon mints a token at `~/.canopy/token` on first run and requires it on every control
 surface (see [Security model](#security-model)). Then open the cockpit at
@@ -53,6 +55,7 @@ If the browser is closed when an agent asks for a tab, the daemon launches it in
 The same binary is also a small CLI against a running daemon:
 
 ```bash
+canopy setup                 # one-shot install: token, Claude Code MCP + skill (--launchd: start at login)
 canopy status                # connected browser + open agent tabs
 canopy open https://example.com --label "checking something"
 canopy tabs
@@ -169,7 +172,6 @@ navigation, so the page's very first API calls are captured too.
 | `src/recorder.js` | Append-only action log + JPEG frames per session |
 | `extension/` | MV3 service worker: tab lifecycle, CDP without a port |
 | `cockpit/` | Live Feed (tiles + action log) and Flight Recorder (scrubbable replay) |
-| `examples/stagehand.mjs` | Stagehand / Playwright / Puppeteer attaching to the same CDP endpoint |
 
 Screencast only runs while someone is actually watching the cockpit; otherwise frames are sampled
 sparsely, because `captureScreenshot` on N tabs is the one real background CPU cost.
@@ -225,8 +227,6 @@ and ported to this two-lane architecture.
 guard, network capture and replay of API calls, session recording, multi-tab replay filtering,
 the cockpit's live feed, token auth, the CLI. Exercised end-to-end inside Arc (open, navigate,
 act, background-tab keyboard, screenshots) and against Chrome for Testing.
-`examples/stagehand.mjs` connects and drives the same browser over CDP (the LLM `extract` step
-needs `ANTHROPIC_API_KEY`).
 
 Two reliability details worth knowing: the daemon pings the extension every 20 s because MV3
 service workers idle out after ~30 s and would otherwise drop the bridge; and agent tabs survive

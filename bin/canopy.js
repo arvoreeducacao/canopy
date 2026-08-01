@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -15,17 +16,102 @@ const opt = (name, def) => {
 }
 
 // ---------------- CLI mode: talk to a running daemon ----------------
-const COMMANDS = new Set(['open', 'tabs', 'status', 'close', 'screenshot', 'help'])
+const COMMANDS = new Set(['setup', 'open', 'tabs', 'status', 'close', 'screenshot', 'help'])
 
 if (COMMANDS.has(args[0])) {
   await cli(args[0], args.slice(1))
   process.exit(0)
 }
 
+// One-shot install: mint the token, register the MCP server in Claude Code,
+// install the Claude Code skill, and (optionally, macOS) a launchd agent so
+// the daemon starts at login. Idempotent — safe to re-run.
+function setup() {
+  const home = os.homedir()
+  const base = path.join(home, '.canopy')
+  const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
+  fs.mkdirSync(base, { recursive: true })
+
+  // Same token the daemon mints on first run — creating it here lets the MCP
+  // registration happen before the daemon has ever started.
+  const tokenPath = path.join(base, 'token')
+  let token = ''
+  try { token = fs.readFileSync(tokenPath, 'utf8').trim() } catch {}
+  if (!token) {
+    token = crypto.randomBytes(24).toString('hex')
+    fs.writeFileSync(tokenPath, token + '\n', { mode: 0o600 })
+    console.log(`[setup] token minted at ${tokenPath}`)
+  } else {
+    console.log(`[setup] token already at ${tokenPath}`)
+  }
+
+  const mcpAdd = `claude mcp add --scope user --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`
+  try {
+    execSync('claude mcp remove --scope user canopy', { stdio: 'ignore' })
+  } catch {}
+  try {
+    execSync(mcpAdd, { stdio: 'ignore' })
+    console.log('[setup] MCP server "canopy" registered in Claude Code (user scope)')
+  } catch {
+    console.log('[setup] could not run the claude CLI — register the MCP server yourself:')
+    console.log(`          ${mcpAdd}`)
+  }
+
+  const skillSrc = path.join(__dirname, '..', 'skills', 'canopy')
+  const skillDst = path.join(home, '.claude', 'skills', 'canopy')
+  try {
+    fs.cpSync(skillSrc, skillDst, { recursive: true })
+    console.log(`[setup] skill installed at ${skillDst}`)
+  } catch (e) {
+    console.log(`[setup] could not install the skill: ${e.message}`)
+  }
+
+  if (flag('--launchd')) {
+    if (process.platform !== 'darwin') {
+      console.log('[setup] --launchd is macOS-only, skipped')
+    } else {
+      const bin = fileURLToPath(import.meta.url)
+      const plistPath = path.join(home, 'Library', 'LaunchAgents', 'com.arvore.canopy.plist')
+      const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.arvore.canopy</string>
+  <key>ProgramArguments</key><array>
+    <string>${process.execPath}</string>
+    <string>${bin}</string>
+    <string>--port</string><string>${port}</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${path.join(base, 'daemon.log')}</string>
+  <key>StandardErrorPath</key><string>${path.join(base, 'daemon.log')}</string>
+</dict></plist>
+`
+      fs.mkdirSync(path.dirname(plistPath), { recursive: true })
+      fs.writeFileSync(plistPath, plist)
+      try { execSync(`launchctl unload ${plistPath}`, { stdio: 'ignore' }) } catch {}
+      try {
+        execSync(`launchctl load ${plistPath}`, { stdio: 'ignore' })
+        console.log(`[setup] launchd agent loaded (${plistPath}) — the daemon now starts at login`)
+        console.log(`[setup] note: it points at this install (${bin}); re-run setup --launchd after moving or updating it`)
+      } catch (e) {
+        console.log(`[setup] could not load the launchd agent: ${e.message}`)
+      }
+    }
+  }
+
+  console.log(`
+next steps:
+  1. start the daemon (skip if you used --launchd):  canopy
+  2. load the extension: arc://extensions (or chrome://extensions) → Developer mode → Load unpacked → ${path.join(__dirname, '..', 'extension')}
+  3. cockpit: http://127.0.0.1:${port}/`)
+}
+
 async function cli(cmd, rest) {
   if (cmd === 'help') {
     console.log(`canopy                       start the daemon
 canopy --launch-chrome       start the daemon and open a test browser
+canopy setup [--launchd]     one-shot install: token, Claude Code MCP + skill
 canopy status                daemon/browser state
 canopy open <url> [--label]  open an agent tab
 canopy tabs                  list agent tabs
@@ -33,6 +119,7 @@ canopy close <tab>           close a tab (e.g. canopy close t1)
 canopy screenshot <tab> [f]  save a PNG screenshot of the tab`)
     return
   }
+  if (cmd === 'setup') return setup()
   const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
   const base = `http://127.0.0.1:${port}`
   let token = ''
@@ -163,7 +250,7 @@ if (flag('--launch-chrome')) {
     `http://127.0.0.1:${port}/`
   ]
   if (!target) {
-    console.log('[canopy] nenhum Chrome encontrado — instale o Chrome for Testing:')
+    console.log('[canopy] no Chrome found — install Chrome for Testing:')
     console.log('           pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers')
   } else {
     // macOS .app bundles launch via `open -g` (background, no focus steal);
@@ -172,12 +259,12 @@ if (flag('--launch-chrome')) {
       ? spawn('open', ['-g', '-n', '-a', target, '--args', ...chromeArgs], { detached: true, stdio: 'ignore' })
       : spawn(target, chromeArgs, { detached: true, stdio: 'ignore' })
     child.unref()
-    console.log(`[canopy] browser lançado em segundo plano: ${path.basename(target)} (perfil ${profile}, CDP ${cdpPort})`)
+    console.log(`[canopy] browser launched in the background: ${path.basename(target)} (profile ${profile}, CDP ${cdpPort})`)
     if (!cft && !opt('--browser', null)) {
-      console.log('[canopy] dica: instale o Chrome for Testing para a extensão carregar no browser de teste:')
+      console.log('[canopy] tip: install Chrome for Testing so the extension loads in the test browser:')
       console.log('           pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers')
     }
   }
 }
 
-console.log('[canopy] pronto. Para o Arc: carregue a pasta extension/ em arc://extensions (modo desenvolvedor).')
+console.log('[canopy] ready. For Arc: load the extension/ folder at arc://extensions (developer mode).')
