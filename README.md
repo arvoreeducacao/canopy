@@ -226,6 +226,55 @@ plain files: grep them, diff them, delete them. The cockpit's **Flight Recorder*
 session on a scrubbable timeline, filterable by tab, so "what did the agent actually do at 14:32"
 has an answer.
 
+## Cloud mode
+
+Everything above runs against the browser on your machine. Cloud mode runs the *same* daemon
+next to a headless Chromium in a container — a self-hosted [Browserbase](https://browserbase.com)-style
+browser-in-the-cloud, with the cockpit, the flight recorder and the MCP/REST surface included:
+
+```bash
+docker build -t canopy .
+docker run -d -p 4664:4664 \
+  -e CANOPY_TOKEN=$(openssl rand -hex 24) \
+  -e CANOPY_PUBLIC_HOST=canopy.example.com \
+  -v canopy-data:/data \
+  canopy
+```
+
+(or start from [docker-compose.cloud.yml](docker-compose.cloud.yml)). Point a TLS-terminating
+reverse proxy at port 4664 and connect agents to `https://canopy.example.com/mcp` with
+`Authorization: Bearer <token>`. Humans open the cockpit once as `/?token=<token>` — it lands in
+localStorage and leaves the URL.
+
+What changes when the bind leaves loopback:
+
+- **Everything requires the token** — REST, `/mcp`, the cockpit WebSocket (it carries frames and
+  accepts takeover/stop), recordings and replays. Only the static cockpit shell is served open.
+  The daemon refuses to start public with `CANOPY_NO_AUTH=1`.
+- **The Host allowlist replaces the loopback guard** — requests whose `Host` is not in
+  `CANOPY_PUBLIC_HOST` are refused.
+- **The Chromium profile lives on the `/data` volume**, so logins the agent performs survive
+  restarts and redeploys — the cloud equivalent of "the browser you are already logged into".
+
+| Env | What it does |
+|---|---|
+| `CANOPY_BIND` | Listen address. Default `127.0.0.1`; the Docker image sets `0.0.0.0`. |
+| `CANOPY_PUBLIC_HOST` | Comma-separated Host allowlist (your public hostnames). |
+| `CANOPY_TOKEN` | Sets the API token explicitly (otherwise minted at `$CANOPY_DATA_DIR/token`). |
+| `CANOPY_DATA_DIR` | Data dir (token, sessions, profile). The image sets `/data`. |
+| `CANOPY_SSO_HOST` | Host whose requests arrive through your proxy's forward-auth (e.g. oauth2-proxy). On that host — and only there — a request carrying `CANOPY_SSO_HEADER` counts as authenticated, so SSO'd humans get the cockpit with no token. |
+| `CANOPY_SSO_HEADER` | The identity header your forward-auth sets. Default `x-auth-request-email`. Only trust this if the middleware *overwrites* it (oauth2-proxy with `authResponseHeaders` does). |
+| `CANOPY_MCP_ORIGIN` | Origin the cockpit displays in its "connect an agent" command (useful when agents use a separate token-auth domain next to an SSO-protected cockpit domain). |
+| `CANOPY_CDP_URL` | Where the browser's CDP endpoint lives. Default `http://127.0.0.1:9222` (the in-container Chromium). |
+
+A practical two-domain setup: `canopy.example.com` → cockpit behind your SSO middleware
+(`CANOPY_SSO_HOST`), and `canopy-mcp.example.com` → token-only, for agents that can't do OAuth.
+Both point at the same container; the daemon only trusts the SSO header on the SSO host, because
+your proxy routes by Host and forward-auth runs before anything reaches the daemon.
+
+One container is one browser (sessions are tab groups inside it) — multi-tenant means one
+container per tenant, each with its own token, volume and hostname.
+
 ## Security model
 
 Canopy deliberately gives an agent a lot: a browser holding your live sessions. Please read this
@@ -241,7 +290,9 @@ What the design gives you:
 - **No CORS, Host validated.** REST responses carry no `Access-Control-Allow-Origin`, and
   requests with a non-loopback `Host` header are refused (DNS-rebinding guard), so a web page you
   have open cannot reach the daemon even for the unauthenticated cockpit feeds.
-- **Loopback only.** Nothing listens on a routable interface. Do not port-forward or tunnel it.
+- **Loopback only by default.** Nothing listens on a routable interface unless you explicitly
+  enable [cloud mode](#cloud-mode) — and there, every route including the cockpit's own feeds
+  requires the token (or proxy SSO), and the Host header must match `CANOPY_PUBLIC_HOST`.
 - **Your data stays local.** Recordings are files in your home directory. Canopy ships no
   telemetry and talks to no server of ours. (The cockpit's own read feeds — live frames, the
   action log, replays — stay tokenless so the UI works, which means other *local* processes can
