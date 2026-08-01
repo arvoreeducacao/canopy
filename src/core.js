@@ -58,7 +58,7 @@ export class Controller extends EventEmitter {
         if (tracked) continue
         await t.closeTab({ extTabId }).then(() => { closed += 1 }).catch(() => {})
       }
-      if (closed) console.log(`[canopy] ${closed} aba(s) de agente órfã(s) fechada(s)`)
+      if (closed) console.log(`[canopy] closed ${closed} orphaned agent tab(s)`)
     })
     t.on('connected', () => clearTimeout(t._dropTimer))
     t.on('disconnected', () => {

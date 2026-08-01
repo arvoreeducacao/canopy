@@ -37,7 +37,7 @@ if (process.env.ANTHROPIC_API_KEY) {
   })
   console.log(headlines)
 } else {
-  console.log('ANTHROPIC_API_KEY não definido — pulei o extract com LLM')
+  console.log('ANTHROPIC_API_KEY not set — skipped the LLM extract step')
 }
 
 await stagehand.close()

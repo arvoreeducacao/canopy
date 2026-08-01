@@ -36,11 +36,12 @@ Requires Node ≥ 20. The daemon itself is portable; the `--launch-chrome` helpe
 macOS-only for now (see [Limitations](#limitations)).
 
 ```bash
-pnpm install
-node bin/canopy.js
+npx @arvoretech/canopy
 claude mcp add --transport http canopy http://127.0.0.1:4664/mcp \
   --header "Authorization: Bearer $(cat ~/.canopy/token)"
 ```
+
+(Or from a clone: `pnpm install && node bin/canopy.js`.)
 
 The daemon mints a token at `~/.canopy/token` on first run and requires it on every control
 surface (see [Security model](#security-model)). Then open the cockpit at

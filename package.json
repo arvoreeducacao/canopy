@@ -1,6 +1,9 @@
 {
-  "name": "canopy",
+  "name": "@arvoretech/canopy",
   "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Canopy — watch and drive your existing browser (Arc/Chrome) with AI agents: MCP + CDP daemon, live cockpit with replay, visible AI cursor.",
   "type": "module",
   "license": "MIT",

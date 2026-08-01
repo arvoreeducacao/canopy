@@ -24,13 +24,13 @@ if (COMMANDS.has(args[0])) {
 
 async function cli(cmd, rest) {
   if (cmd === 'help') {
-    console.log(`canopy                       inicia o daemon
-canopy --launch-chrome       inicia o daemon e abre um browser de teste
-canopy status                estado do daemon/browser
-canopy open <url> [--label]  abre uma aba de agente
-canopy tabs                  lista abas de agente
-canopy close <tab>           fecha uma aba (ex.: canopy close t1)
-canopy screenshot <tab> [f]  salva screenshot PNG da aba`)
+    console.log(`canopy                       start the daemon
+canopy --launch-chrome       start the daemon and open a test browser
+canopy status                daemon/browser state
+canopy open <url> [--label]  open an agent tab
+canopy tabs                  list agent tabs
+canopy close <tab>           close a tab (e.g. canopy close t1)
+canopy screenshot <tab> [f]  save a PNG screenshot of the tab`)
     return
   }
   const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
@@ -47,7 +47,7 @@ canopy screenshot <tab> [f]  salva screenshot PNG da aba`)
         body: body ? JSON.stringify(body) : undefined
       })
     } catch {
-      console.error(`daemon não está rodando em ${base} — inicie com: canopy`)
+      console.error(`daemon is not running at ${base} — start it with: canopy`)
       process.exit(1)
     }
     if (p.includes('/screenshot')) {
@@ -61,14 +61,14 @@ canopy screenshot <tab> [f]  salva screenshot PNG da aba`)
 
   if (cmd === 'status') {
     const s = await req('GET', '/status')
-    console.log(`browser: ${s.connected ? `${s.browser} (${s.mode})` : 'desconectado'}`)
-    console.log(`abas:    ${s.tabs.length}`)
+    console.log(`browser: ${s.connected ? `${s.browser} (${s.mode})` : 'disconnected'}`)
+    console.log(`tabs:    ${s.tabs.length}`)
     for (const t of s.tabs) console.log(`  ${t.id}  ${t.title || t.url}`)
     return
   }
   if (cmd === 'tabs') {
     const tabs = await req('GET', '/tabs')
-    if (!tabs.length) return console.log('nenhuma aba de agente aberta')
+    if (!tabs.length) return console.log('no agent tabs open')
     for (const t of tabs) {
       const state = t.stopRequested ? 'stopped' : t.takenOver ? 'yours' : 'live'
       console.log(`${t.id}  [${state}]  ${t.title || ''}  ${t.url}`)
@@ -77,19 +77,19 @@ canopy screenshot <tab> [f]  salva screenshot PNG da aba`)
   }
   if (cmd === 'open') {
     const url = rest.find(a => !a.startsWith('--') && a !== opt('--label', null))
-    if (!url) { console.error('uso: canopy open <url> [--label "tarefa"]'); process.exit(1) }
+    if (!url) { console.error('usage: canopy open <url> [--label "task"]'); process.exit(1) }
     const tab = await req('POST', '/tabs', { url, label: opt('--label', undefined) })
     console.log(`${tab.id}  ${tab.url}`)
     return
   }
   if (cmd === 'close') {
-    if (!rest[0]) { console.error('uso: canopy close <tab>'); process.exit(1) }
+    if (!rest[0]) { console.error('usage: canopy close <tab>'); process.exit(1) }
     await req('DELETE', `/tabs/${rest[0]}`)
     console.log('ok')
     return
   }
   if (cmd === 'screenshot') {
-    if (!rest[0]) { console.error('uso: canopy screenshot <tab> [saida.png]'); process.exit(1) }
+    if (!rest[0]) { console.error('usage: canopy screenshot <tab> [out.png]'); process.exit(1) }
     const buf = await req('GET', `/tabs/${rest[0]}/screenshot`)
     const out = rest[1] || `${rest[0]}.png`
     fs.writeFileSync(out, buf)
