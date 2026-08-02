@@ -105,10 +105,17 @@ export function restHandler(controller, recorder) {
           return json(res, 200, await controller.requestBody(id, parts[3]))
         }
         if (req.method === 'GET' && sub === 'screenshot') {
-          const data = await controller.screenshot(id)
+          const { data } = await controller.screenshot(id, { fullPage: url.searchParams.get('fullPage') === '1' })
           const buf = Buffer.from(data, 'base64')
           res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': buf.length })
           return res.end(buf)
+        }
+        if (req.method === 'GET' && sub === 'console') {
+          return json(res, 200, controller.consoleMessages(id, {
+            level: url.searchParams.get('level') || undefined,
+            limit: Number(url.searchParams.get('limit')) || undefined,
+            clear: url.searchParams.get('clear') === '1'
+          }))
         }
         if (req.method === 'GET' && sub === 'text') {
           return json(res, 200, { text: await controller.readPage(id, Number(url.searchParams.get('max')) || 12000) })
@@ -128,6 +135,9 @@ export function restHandler(controller, recorder) {
         }
         if (req.method === 'POST' && sub === 'act') {
           return json(res, 200, await controller.act(id, body))
+        }
+        if (req.method === 'POST' && sub === 'resize') {
+          return json(res, 200, await controller.resize(id, body))
         }
         if (req.method === 'POST' && sub === 'eval') {
           if (!body.expression) return json(res, 400, { error: 'expression required' })

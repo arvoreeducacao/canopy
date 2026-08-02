@@ -39,6 +39,13 @@ ids of tabs it opened, in `chrome.storage.session`, which the browser clears whe
 
 `browser_snapshot` never captures the value of a `type="password"` field.
 
+Console output and network errors of agent-driven tabs are captured so the agent can see why a
+page failed — the last 200 messages per tab, plus the URL and method of the last 400 requests of
+any type. Both are held in memory only and discarded when the tab closes. If a page logs a token
+to its own console, that text is visible to the agent. The one exception written to disk is a
+failed main-frame navigation (its URL and the network error), which is recorded in the action log
+like any other step.
+
 ## What is never done
 
 - No telemetry, analytics, crash reporting or usage statistics.
