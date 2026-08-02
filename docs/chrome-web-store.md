@@ -176,16 +176,25 @@ Two things help materially:
 
    ```
    This extension is a bridge to a local open-source daemon; it is inert without it.
+   It also refuses to talk to any daemon that cannot prove a shared pairing code,
+   so step 3 is required — without it the badge stays "!" and nothing connects.
    To test:
      1. Install Node 20+.
      2. Run: npx @arvoretech/canopy
-     3. Reload/enable this extension — its toolbar badge turns to "on" once connected.
-     4. Open http://127.0.0.1:4664/ to see the cockpit.
-     5. Run: npx @arvoretech/canopy open https://example.com --label "review test"
+     3. Run: npx @arvoretech/canopy pair
+        Copy the printed code into this extension's Details -> Extension options -> Save.
+     4. The toolbar badge turns to "on" once connected.
+     5. Open http://127.0.0.1:4664/ to see the cockpit.
+     6. Run: npx @arvoretech/canopy open https://example.com --label "review test"
         A background tab opens in an amber "AI" group, dimmed, with an "Agent in control" pill,
         and appears live in the cockpit.
    Source: https://github.com/arvoreeducacao/canopy
    ```
+
+   The pairing step is worth calling out in the justification too: the extension will only obey a
+   daemon that proves knowledge of a code the user copied by hand, which is what stops any other
+   process on the machine from picking up the port and inheriting `chrome.debugger`. Versions
+   before 0.3.1 connected to whatever answered on 127.0.0.1:4664 — **do not ship those.**
 
 2. **Publishing Unlisted first.** An unlisted item is still reviewed, but it does not appear in
    search or category browsing and is installable by direct link — which is all the README needs.
