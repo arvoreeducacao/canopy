@@ -264,9 +264,10 @@ What changes when the bind leaves loopback:
 - **The Chromium profile lives on the `/data` volume**, so logins the agent performs survive
   restarts and redeploys — the cloud equivalent of "the browser you are already logged into".
 - **Private networks are off limits** — RFC1918, loopback, link-local (`169.254.169.254`) and bare
-  single-label hostnames are refused, so a token holder cannot use the browser as an SSRF pivot
-  into the network the container sits in. Best-effort: a public name that *resolves* into private
-  space still gets through, so egress filtering in front of the container is the real control.
+  single-label hostnames are refused. This is a guardrail against an agent wandering, not a
+  boundary against the token holder: it applies to `openTab`/`navigate`, so `browser_eval` can
+  navigate around it, a redirect lands after the check, and a public name that *resolves* into
+  private space is never caught. Egress filtering in front of the container is the real control.
 
 | Env | What it does |
 |---|---|
@@ -307,7 +308,10 @@ What the design gives you:
   it*, are gated on being able to read that file. `CANOPY_NO_AUTH=1` opts out locally and is
   refused outright on a non-loopback bind.
 - **The cockpit holds no credential.** It gets the token as an `HttpOnly; SameSite=Strict` cookie:
-  unreadable from page JavaScript, absent from the URL and from proxy logs.
+  unreadable from page JavaScript, absent from the URL and from proxy logs. Because `SameSite`
+  ignores ports — any other service on `127.0.0.1` is "same site" — the cookie is only honoured on
+  requests the browser labels as coming from our own origin, and never for a write without a
+  matching `Origin`.
 - **No CORS, Host and Origin validated.** REST responses carry no `Access-Control-Allow-Origin`,
   and a non-loopback `Host` is refused (DNS-rebinding guard). WebSockets are exempt from CORS, so
   `/ws` also requires that any `Origin` present match the `Host` — that is what stops a page you

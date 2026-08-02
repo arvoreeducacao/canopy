@@ -22,10 +22,14 @@ function hex(buf) {
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-async function proof(secret, nonce) {
+// Each side signs a different string. Sharing one would let anything talk the
+// daemon into producing the proof it then asks for, and attach without knowing
+// the secret; the role prefix is what stops that. Both nonces go in so a proof
+// belongs to the exchange that produced it.
+async function proof(secret, role, clientNonce, serverNonce) {
   const enc = new TextEncoder()
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  return hex(await crypto.subtle.sign('HMAC', key, enc.encode(String(nonce))))
+  return hex(await crypto.subtle.sign('HMAC', key, enc.encode(`${role}|${clientNonce}|${serverNonce}`)))
 }
 
 function badge(text, color, title) {
@@ -86,7 +90,8 @@ async function connect() {
     try { msg = JSON.parse(e.data) } catch { return }
 
     if (!paired) {
-      if (msg.event !== 'auth' || msg.proof !== await proof(secret, myNonce)) {
+      if (msg.event !== 'auth' || typeof msg.nonce !== 'string'
+          || msg.proof !== await proof(secret, 'daemon', myNonce, msg.nonce)) {
         // Something is answering on 4664 that does not know the secret. Do not
         // talk to it — it would be handing it this browser's debugger.
         refused = true
@@ -99,7 +104,7 @@ async function connect() {
       const orphans = await liveAgentTabs().catch(() => [])
       send({
         event: 'hello',
-        proof: await proof(secret, msg.nonce),
+        proof: await proof(secret, 'extension', myNonce, msg.nonce),
         browser: navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium',
         orphans
       })

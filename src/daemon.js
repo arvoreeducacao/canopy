@@ -66,9 +66,38 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   const cookie = (req, name) => {
     for (const part of (req.headers.cookie || '').split(';')) {
       const eq = part.indexOf('=')
-      if (eq > 0 && part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim())
+      if (eq > 0 && part.slice(0, eq).trim() === name) {
+        const raw = part.slice(eq + 1).trim()
+        // A malformed percent-escape makes decodeURIComponent throw, and this
+        // runs before any auth check — one bad byte would take the daemon down.
+        try { return decodeURIComponent(raw) } catch { return raw }
+      }
     }
     return ''
+  }
+  // Origin, measured against the Host we were addressed as — hostOk has already
+  // pinned that to loopback or a configured public host, so a match means the
+  // request came from a page we served. An absent Origin means a non-browser
+  // client, which is held to the token instead.
+  const sameOrigin = req => {
+    const origin = req.headers.origin
+    if (origin === undefined) return true
+    const host = req.headers.host || ''
+    return origin === `http://${host}` || origin === `https://${host}`
+  }
+  // The cookie is an ambient credential: the browser attaches it to requests
+  // the page never meant to make, and SameSite=Strict is scoped to the *site*,
+  // which ignores ports — so any other service on 127.0.0.1 counts as same-site
+  // and could ride it. Bearer and ?token= callers are explicit and stay exempt;
+  // cookie callers have to look like our own page.
+  const cookieAuthed = req => {
+    if (!tokenEq(cookie(req, 'canopy_token'))) return false
+    const site = req.headers['sec-fetch-site']
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') return false
+    if (req.method === 'GET' || req.method === 'HEAD') return true
+    // Anything that changes state must carry a matching Origin. Browsers always
+    // send one on these methods; the cockpit itself only ever GETs.
+    return req.headers.origin !== undefined && sameOrigin(req)
   }
   // SSO: the proxy's forwardAuth overwrites the identity header, so on the SSO
   // host its presence does mean a logged-in user — but only for traffic that
@@ -81,8 +110,8 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
     && secretEq(req.headers['x-canopy-sso-secret'], ssoSecret)
   const authed = (req, url) => noAuth
     || tokenEq(bearer(req))
-    || tokenEq(cookie(req, 'canopy_token'))
     || tokenEq(url.searchParams.get('token'))
+    || cookieAuthed(req)
     || ssoOk(req)
   // Only the cockpit shell is served without a token, and it carries no data.
   // The action feed, session list and recorded frames are as sensitive as
@@ -150,12 +179,23 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
     return publicHosts.includes(host.replace(/:\d+$/, ''))
   }
 
+  // A request-target the URL parser rejects — "//" is protocol-relative with no
+  // host — would otherwise throw here, before any auth runs, and take the whole
+  // daemon with it. Any page the user has open can send one.
+  const parseUrl = req => {
+    try { return new URL(req.url, 'http://localhost') } catch { return null }
+  }
+
   const server = http.createServer(async (req, res) => {
     if (!hostOk(req)) {
       res.writeHead(403, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ error: 'forbidden host' }))
     }
-    const url = new URL(req.url, 'http://localhost')
+    const url = parseUrl(req)
+    if (!url) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ error: 'bad request target' }))
+    }
     if (url.pathname === '/' || url.pathname === '/cockpit') {
       const headers = { 'Content-Type': 'text/html; charset=utf-8' }
       // The cockpit gets its credential as an HttpOnly cookie: out of reach of
@@ -183,29 +223,20 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   const wssExt = new WebSocketServer({ noServer: true })
   const wssCockpit = new WebSocketServer({ noServer: true })
 
-  // WebSocket is exempt from CORS, so without an Origin check any page the
-  // user has open could subscribe to the screencast of every agent tab and
-  // send takeover/stop/close. A browser cannot forge Origin, which is what
-  // makes this worth anything; a non-browser client sends none at all and is
-  // held to the token instead.
-  //
-  // "Same origin" is measured against the Host we were addressed as, which
-  // hostOk has already restricted to loopback or a configured public host.
-  // Comparing against a precomputed port would break the moment the bound
-  // port differs from the requested one (--port 0, a proxy, a test).
-  const sameOrigin = req => {
-    const origin = req.headers.origin
-    if (origin === undefined) return true
-    const host = req.headers.host || ''
-    return origin === `http://${host}` || origin === `https://${host}`
-  }
 
   // Mutual proof over the pairing secret. The extension verifies us before it
   // will run a single command — otherwise any local process that grabs the
   // port (squatting it before we start, or during a restart) inherits
   // chrome.debugger over every tab in the real browser — and we verify it
   // before handing it the bridge.
-  const extProof = nonce => crypto.createHmac('sha256', extSecret).update(String(nonce)).digest('hex')
+  // Each direction signs a different string. With one shared function the
+  // daemon is an oracle for the very value it then demands: open a second
+  // socket, hand it the nonce you were challenged with, and reflect its answer
+  // back on the first — attaching without ever knowing the secret. The role
+  // prefix breaks that, and binding both nonces keeps a proof tied to the
+  // exchange it was made in.
+  const extProof = (role, clientNonce, serverNonce) =>
+    crypto.createHmac('sha256', extSecret).update(`${role}|${clientNonce}|${serverNonce}`).digest('hex')
   const extHandshake = ws => {
     const ourNonce = crypto.randomBytes(16).toString('hex')
     const timer = setTimeout(() => { try { ws.close() } catch {} }, 10000)
@@ -218,11 +249,11 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
       let msg = {}
       try { msg = JSON.parse(raw) } catch {}
       if (msg.event !== 'auth' || typeof msg.nonce !== 'string') return refuse('no handshake (outdated extension?)')
-      ws.send(JSON.stringify({ event: 'auth', proof: extProof(msg.nonce), nonce: ourNonce }))
+      ws.send(JSON.stringify({ event: 'auth', proof: extProof('daemon', msg.nonce, ourNonce), nonce: ourNonce }))
       ws.once('message', raw2 => {
         let hello = {}
         try { hello = JSON.parse(raw2) } catch {}
-        if (hello.event !== 'hello' || !secretEq(hello.proof, extProof(ourNonce))) return refuse('bad pairing proof')
+        if (hello.event !== 'hello' || !secretEq(hello.proof, extProof('extension', msg.nonce, ourNonce))) return refuse('bad pairing proof')
         clearTimeout(timer)
         extTransport.attachSocket(ws, hello)
       })
@@ -252,7 +283,8 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
 
   server.on('upgrade', (req, socket, head) => {
     if (!hostOk(req)) return socket.destroy()
-    const url = new URL(req.url, 'http://localhost')
+    const url = parseUrl(req)
+    if (!url) return socket.destroy()
     const origin = req.headers.origin
     const { pathname } = url
 
@@ -261,6 +293,9 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
       // still has to prove the pairing secret before it becomes the bridge.
       if (origin !== undefined && !origin.startsWith('chrome-extension://')) return socket.destroy()
       if (extId && origin !== undefined && origin !== `chrome-extension://${extId}`) return socket.destroy()
+      // Cloud mode runs headless with no extension at all, so nothing legitimate
+      // dials this from the internet — require the token there as well.
+      if (isPublic && !authed(req, url)) return socket.destroy()
       return wssExt.handleUpgrade(req, socket, head, extHandshake)
     }
 

@@ -74,10 +74,12 @@ Binding past loopback (`CANOPY_BIND`) puts a logged-in browser on a network. Thi
 see `docker-compose.cloud.yml` — but it changes the exposure meaningfully:
 
 - Everything requires the token; `CANOPY_NO_AUTH=1` is refused outright on a non-loopback bind.
-- Private and link-local destinations are blocked (RFC1918, loopback, `169.254.169.254`, bare
-  single-label hostnames), so the browser is not usable as an SSRF pivot into the network it sits
-  in. This is best-effort: a public hostname that *resolves* into private space still gets through,
-  so egress filtering in front of the container is the real control.
+- Private and link-local destinations are refused (RFC1918, loopback, `169.254.169.254`, bare
+  single-label hostnames). Treat this as a guardrail against an agent wandering, **not** as a
+  boundary against whoever holds the token: it is enforced in `openTab`/`navigate` only, so
+  `browser_eval` can set `location.href` itself, an HTTP redirect lands after the check, and a
+  public hostname that *resolves* into private space is never caught. Egress filtering in front
+  of the container is the real control.
 - Anyone holding the token drives that browser and sees those sessions. The token is a single
   static credential with no rotation, expiry or per-user identity.
 - Chromium runs with `--no-sandbox` in the container (Docker's seccomp profile blocks the namespace

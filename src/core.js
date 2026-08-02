@@ -571,15 +571,26 @@ const ALLOWED_SCHEMES = new Set([
   ...(process.env.CANOPY_ALLOW_SCHEMES || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 ])
 
-// Loopback, RFC1918, CGNAT and the cloud metadata link-local range.
-const PRIVATE_IPV4 = /^(0|10|127)\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./
+// Loopback, RFC1918, CGNAT, the link-local metadata range, Oracle's metadata
+// address and the RFC2544 benchmarking block.
+const PRIVATE_IPV4 = /^(0|10|127)\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|^192\.0\.0\.192$|^198\.1[89]\./
 const PRIVATE_NAME = /^(localhost|[^.]+)$|\.(local|internal|localhost|home|lan)$/i
 
 function isPrivateHost(hostname) {
-  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  // A trailing dot is a legal absolute-FQDN form that resolves identically.
+  // WHATWG URL strips it from IPv4 literals but keeps it on names, so without
+  // this "localhost." and "metadata.google.internal." would sail past both
+  // branches below.
+  const h = hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()
   if (PRIVATE_IPV4.test(h)) return true
   if (h === '::1' || h === '::' || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h)) return true
-  // ::ffff:169.254.169.254 and friends
+  // IPv4-mapped IPv6. The URL parser serialises ::ffff:169.254.169.254 to its
+  // hex form (::ffff:a9fe:a9fe), so match that and rebuild the dotted quad.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h)
+  if (mapped) {
+    const n = (parseInt(mapped[1], 16) << 16) | parseInt(mapped[2], 16)
+    if (PRIVATE_IPV4.test(`${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`)) return true
+  }
   if (h.startsWith('::ffff:') && PRIVATE_IPV4.test(h.slice(7))) return true
   return PRIVATE_NAME.test(h)
 }

@@ -34,7 +34,8 @@ after(() => {
   rmSync(dataDir, { recursive: true, force: true })
 })
 
-const proof = (secret, nonce) => crypto.createHmac('sha256', secret).update(String(nonce)).digest('hex')
+const proof = (secret, role, clientNonce, serverNonce) =>
+  crypto.createHmac('sha256', secret).update(`${role}|${clientNonce}|${serverNonce}`).digest('hex')
 const status = () => fetch(`${BASE}/status`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json())
 
 // Resolves 'connected' only once the daemon sends something, so a socket that
@@ -54,7 +55,9 @@ function dialCockpit(opts) {
 // accepted us and whether the daemon's own proof checked out.
 function dialExt({ secret, origin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop', browser, keepOpen = false } = {}) {
   return new Promise(resolve => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ext`, { origin })
+    // origin: null exercises the path a non-browser peer takes (a local process
+    // squatting the port sends no Origin at all).
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ext`, origin ? { origin } : {})
     const myNonce = crypto.randomBytes(16).toString('hex')
     const timers = []
     let daemonProved = null
@@ -71,8 +74,8 @@ function dialExt({ secret, origin = 'chrome-extension://abcdefghijklmnopabcdefgh
     ws.on('message', raw => {
       const msg = JSON.parse(raw)
       if (msg.event !== 'auth') return
-      daemonProved = msg.proof === proof(secret, myNonce)
-      ws.send(JSON.stringify({ event: 'hello', proof: proof(secret, msg.nonce), browser, orphans: [] }))
+      daemonProved = msg.proof === proof(secret, 'daemon', myNonce, msg.nonce)
+      ws.send(JSON.stringify({ event: 'hello', proof: proof(secret, 'extension', myNonce, msg.nonce), browser, orphans: [] }))
       // Give attachSocket a beat, then ask the daemon who it thinks it is.
       timers.push(setTimeout(() => {
         if (settled) return
@@ -155,6 +158,83 @@ test('a web page cannot pose as the extension', async () => {
   assert.equal(res.attached, false)
 })
 
+test('the pairing handshake cannot be reflected back at the daemon', async () => {
+  // The daemon signs a nonce we choose, before we have proved anything. If both
+  // directions signed the same string, a second socket would be a free oracle
+  // for the proof the first one is asked for — attach with no secret at all.
+  const askOracle = nonce => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ext`)
+    const t = setTimeout(() => { try { ws.close() } catch {}; reject(new Error('oracle timeout')) }, 3000)
+    ws.on('message', raw => {
+      clearTimeout(t)
+      try { ws.close() } catch {}
+      resolve(JSON.parse(raw).proof)
+    })
+    ws.on('open', () => ws.send(JSON.stringify({ event: 'auth', nonce })))
+    ws.on('error', e => { clearTimeout(t); reject(e) })
+  })
+
+  const attached = await new Promise(resolve => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ext`) // no Origin, like a local squatter
+    const t = setTimeout(() => resolve(false), 6000)
+    ws.on('message', async raw => {
+      const msg = JSON.parse(raw)
+      if (msg.event !== 'auth') return
+      const stolen = await askOracle(msg.nonce).catch(() => null)
+      ws.send(JSON.stringify({ event: 'hello', proof: stolen, browser: 'REFLECTED/1.0', orphans: [] }))
+      setTimeout(async () => {
+        clearTimeout(t)
+        resolve((await status()).browser === 'REFLECTED/1.0')
+        try { ws.close() } catch {}
+      }, 400)
+    })
+    ws.on('open', () => ws.send(JSON.stringify({ event: 'auth', nonce: 'attacker-chosen' })))
+    ws.on('error', () => { clearTimeout(t); resolve(false) })
+  })
+  assert.equal(attached, false, 'reflected proof must not attach the bridge')
+})
+
+test('a malformed cookie does not take the daemon down', async () => {
+  // decodeURIComponent throws on a bad escape, and this runs before auth.
+  const res = await fetch(`${BASE}/status`, { headers: { Cookie: 'canopy_token=%' } })
+  assert.equal(res.status, 401)
+  assert.equal((await fetch(`${BASE}/status`, { headers: { Authorization: `Bearer ${token}` } })).status, 200,
+    'daemon should still be alive')
+})
+
+test('an unparseable request target does not take the daemon down', async () => {
+  // "//" is protocol-relative with no host; new URL() throws on it.
+  const res = await fetch(`${BASE}//`)
+  assert.ok(res.status === 400 || res.status === 401, `expected 400/401, got ${res.status}`)
+  assert.equal((await fetch(`${BASE}/status`, { headers: { Authorization: `Bearer ${token}` } })).status, 200,
+    'daemon should still be alive')
+})
+
+test('the cookie cannot be used for cross-site writes', async () => {
+  // SameSite=Strict is scoped to the site, which ignores ports — a page on any
+  // other 127.0.0.1 port is same-site and its requests carry this cookie.
+  const cookie = `canopy_token=${token}`
+  const write = extra => fetch(`${BASE}/tabs`, {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'text/plain', ...extra },
+    body: JSON.stringify({ url: 'https://example.com' })
+  })
+  assert.equal((await write({ Origin: 'http://127.0.0.1:3000', 'Sec-Fetch-Site': 'same-site' })).status, 401)
+  assert.equal((await write({ Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' })).status, 401)
+  assert.equal((await write({})).status, 401, 'a cookie write with no Origin at all should be refused too')
+  // And a genuine cockpit read still works.
+  assert.equal((await fetch(`${BASE}/actions`, {
+    headers: { Cookie: cookie, 'Sec-Fetch-Site': 'same-origin' }
+  })).status, 200)
+})
+
+test('cookie reads from another origin are refused', async () => {
+  const res = await fetch(`${BASE}/actions`, {
+    headers: { Cookie: `canopy_token=${token}`, 'Sec-Fetch-Site': 'cross-site' }
+  })
+  assert.equal(res.status, 401)
+})
+
 test('cloud mode refuses local schemes and private networks', async () => {
   const cloud = new Controller(new Recorder(path.join(dataDir, 'sessions')), { restrictUrls: true })
   const blocked = [
@@ -166,7 +246,16 @@ test('cloud mode refuses local schemes and private networks', async () => {
     'http://10.0.0.5/admin',
     'http://172.17.0.1:4664/status',         // the Docker bridge
     'http://canopy:4664/status',             // a bare service name
-    'http://[fd00::1]/'
+    'http://[fd00::1]/',
+    'http://localhost.:4664/status',         // trailing dot still resolves
+    'http://metadata.google.internal./computeMetadata/v1/',
+    'http://169.254.169.254./latest/meta-data/',
+    'http://[::ffff:169.254.169.254]/',      // IPv4-mapped IPv6
+    'http://[::ffff:127.0.0.1]:4664/status',
+    'http://192.0.0.192/',                   // Oracle metadata
+    'http://198.18.0.1/',                    // RFC2544 benchmarking block
+    'http://2130706433/',                    // 127.0.0.1 as a decimal integer
+    'http://0x7f000001/'                     // and as hex
   ]
   for (const url of blocked) {
     await assert.rejects(cloud.openTab(url), /not allowed|refusing to navigate/, `${url} should be blocked`)
