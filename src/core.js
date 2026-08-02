@@ -30,8 +30,12 @@ const KEYCAP = {
 }
 
 export class Controller extends EventEmitter {
-  constructor(recorder) {
+  // restrictUrls: cloud mode. The browser sits inside someone's private
+  // network, so it must not be usable as an SSRF pivot (or a metadata-service
+  // reader) by whoever holds the token.
+  constructor(recorder, { restrictUrls = false } = {}) {
     super()
+    this.restrictUrls = restrictUrls
     this.recorder = recorder
     this.transports = []
     this.tabs = new Map()      // id -> tab
@@ -144,6 +148,7 @@ export class Controller extends EventEmitter {
   }
 
   async openTab(url, { session, label, activate } = {}) {
+    const target = normalizeUrl(url, this.restrictUrls)
     let t = this.transport()
     // No browser? Try to launch one (hook set by the daemon) and wait for a
     // transport to dial in — the agent can start from a fully closed browser.
@@ -160,7 +165,7 @@ export class Controller extends EventEmitter {
       ref,
       transport: t,
       session: s.id,
-      url: normalizeUrl(url),
+      url: target,
       title: '',
       label: label || 'Agent',
       takenOver: false,
@@ -336,7 +341,7 @@ export class Controller extends EventEmitter {
     const tab = this.getTab(id)
     this.#guard(tab)
     if (label) tab.label = label
-    tab.url = normalizeUrl(url)
+    tab.url = normalizeUrl(url, this.restrictUrls)
     await tab.transport.send(tab.ref, 'Page.navigate', { url: tab.url })
     this.#log(tab, 'navigate', { url: tab.url, label })
     this.#state()
@@ -557,8 +562,42 @@ function pickHeaders(headers = {}) {
   return Object.keys(keep).length ? keep : undefined
 }
 
-function normalizeUrl(url) {
+// Schemes an agent may navigate to. Everything else — file:, chrome:,
+// devtools:, view-source:, filesystem: — turns "open a page" into reading the
+// host: file:///data/token, the profile's Cookies DB, chrome://net-internals.
+// CANOPY_ALLOW_SCHEMES=file: opts back in on a machine where that is fine.
+const ALLOWED_SCHEMES = new Set([
+  'http:', 'https:',
+  ...(process.env.CANOPY_ALLOW_SCHEMES || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+])
+
+// Loopback, RFC1918, CGNAT and the cloud metadata link-local range.
+const PRIVATE_IPV4 = /^(0|10|127)\.|^169\.254\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./
+const PRIVATE_NAME = /^(localhost|[^.]+)$|\.(local|internal|localhost|home|lan)$/i
+
+function isPrivateHost(hostname) {
+  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (PRIVATE_IPV4.test(h)) return true
+  if (h === '::1' || h === '::' || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h)) return true
+  // ::ffff:169.254.169.254 and friends
+  if (h.startsWith('::ffff:') && PRIVATE_IPV4.test(h.slice(7))) return true
+  return PRIVATE_NAME.test(h)
+}
+
+function normalizeUrl(url, restrict = false) {
   if (!url) return 'about:blank'
-  if (/^[a-z]+:\/\//i.test(url) || url.startsWith('about:')) return url
-  return `https://${url}`
+  const full = /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`
+  if (full === 'about:blank') return full
+  let parsed
+  try { parsed = new URL(full) } catch { throw new Error(`invalid url: ${url}`) }
+  if (!ALLOWED_SCHEMES.has(parsed.protocol.toLowerCase())) {
+    throw new Error(`scheme ${parsed.protocol} is not allowed — Canopy navigates http(s) only`)
+  }
+  // Best effort: a hostname that resolves into private space still gets
+  // through (and DNS rebinding could flip it after this check). The proxy
+  // in front of a cloud deploy is the real egress control.
+  if (restrict && isPrivateHost(parsed.hostname)) {
+    throw new Error(`refusing to navigate to ${parsed.hostname} — private and link-local addresses are blocked in cloud mode`)
+  }
+  return parsed.href
 }

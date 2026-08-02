@@ -16,7 +16,21 @@ const opt = (name, def) => {
 }
 
 // ---------------- CLI mode: talk to a running daemon ----------------
-const COMMANDS = new Set(['setup', 'open', 'tabs', 'status', 'close', 'screenshot', 'help'])
+const COMMANDS = new Set(['setup', 'pair', 'open', 'tabs', 'status', 'close', 'screenshot', 'help'])
+
+// Mint-or-read a 0600 secret under ~/.canopy. Same files the daemon uses, so
+// setup can run before the daemon has ever started.
+function secretFile(name, bytes) {
+  const p = path.join(os.homedir(), '.canopy', name)
+  try {
+    const existing = fs.readFileSync(p, 'utf8').trim()
+    if (existing) return { path: p, value: existing, minted: false }
+  } catch {}
+  const value = crypto.randomBytes(bytes).toString('hex')
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  fs.writeFileSync(p, value + '\n', { mode: 0o600 })
+  return { path: p, value, minted: true }
+}
 
 if (COMMANDS.has(args[0])) {
   await cli(args[0], args.slice(1))
@@ -34,16 +48,10 @@ function setup() {
 
   // Same token the daemon mints on first run — creating it here lets the MCP
   // registration happen before the daemon has ever started.
-  const tokenPath = path.join(base, 'token')
-  let token = ''
-  try { token = fs.readFileSync(tokenPath, 'utf8').trim() } catch {}
-  if (!token) {
-    token = crypto.randomBytes(24).toString('hex')
-    fs.writeFileSync(tokenPath, token + '\n', { mode: 0o600 })
-    console.log(`[setup] token minted at ${tokenPath}`)
-  } else {
-    console.log(`[setup] token already at ${tokenPath}`)
-  }
+  const { path: tokenPath, value: token, minted } = secretFile('token', 24)
+  console.log(`[setup] token ${minted ? 'minted at' : 'already at'} ${tokenPath}`)
+  const pairing = secretFile('ext-secret', 16)
+  console.log(`[setup] extension pairing code ${pairing.minted ? 'minted at' : 'already at'} ${pairing.path}`)
 
   const mcpAdd = `claude mcp add --scope user --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`
   try {
@@ -104,7 +112,8 @@ function setup() {
 next steps:
   1. start the daemon (skip if you used --launchd):  canopy
   2. load the extension: arc://extensions (or chrome://extensions) → Developer mode → Load unpacked → ${path.join(__dirname, '..', 'extension')}
-  3. cockpit: http://127.0.0.1:${port}/`)
+  3. pair it: the extension's Details → Extension options → paste  ${pairing.value}
+  4. cockpit: http://127.0.0.1:${port}/`)
 }
 
 async function cli(cmd, rest) {
@@ -112,6 +121,7 @@ async function cli(cmd, rest) {
     console.log(`canopy                       start the daemon
 canopy --launch-chrome       start the daemon and open a test browser
 canopy setup [--launchd]     one-shot install: token, Claude Code MCP + skill
+canopy pair                  print the extension pairing code
 canopy status                daemon/browser state
 canopy open <url> [--label]  open an agent tab
 canopy tabs                  list agent tabs
@@ -120,6 +130,12 @@ canopy screenshot <tab> [f]  save a PNG screenshot of the tab`)
     return
   }
   if (cmd === 'setup') return setup()
+  if (cmd === 'pair') {
+    const pairing = secretFile('ext-secret', 16)
+    console.log(pairing.value)
+    console.log(`\npaste it into the extension: arc://extensions (or chrome://extensions)\n  → Canopy Bridge → Details → Extension options`)
+    return
+  }
   const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
   const base = `http://127.0.0.1:${port}`
   let token = ''
@@ -194,6 +210,8 @@ const bind = opt('--bind', process.env.CANOPY_BIND || '127.0.0.1')
 const publicHost = opt('--public-host', process.env.CANOPY_PUBLIC_HOST || '')
 const ssoHost = opt('--sso-host', process.env.CANOPY_SSO_HOST || '')
 const ssoHeader = (opt('--sso-header', process.env.CANOPY_SSO_HEADER || 'x-auth-request-email')).toLowerCase()
+const ssoSecret = process.env.CANOPY_SSO_SECRET || ''
+const extId = opt('--ext-id', process.env.CANOPY_EXT_ID || '')
 const mcpOrigin = opt('--mcp-origin', process.env.CANOPY_MCP_ORIGIN || '')
 const dataDir = opt('--data-dir', process.env.CANOPY_DATA_DIR || '') || undefined
 
@@ -238,7 +256,7 @@ function findSystemChrome() {
   return null
 }
 
-await startDaemon({ port, bind, publicHost, ssoHost, ssoHeader, mcpOrigin, dataDir, cdpUrl: process.env.CANOPY_CDP_URL || `http://127.0.0.1:${cdpPort}` })
+await startDaemon({ port, bind, publicHost, ssoHost, ssoHeader, ssoSecret, extId, mcpOrigin, dataDir, cdpUrl: process.env.CANOPY_CDP_URL || `http://127.0.0.1:${cdpPort}` })
 
 if (flag('--launch-chrome')) {
   const cft = findChromeForTesting()

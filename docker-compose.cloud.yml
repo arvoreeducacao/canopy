@@ -10,9 +10,14 @@ services:
       - CANOPY_TOKEN=${CANOPY_TOKEN:?set a strong random token}
       # Hostname(s) your proxy forwards — comma-separated (Host-header allowlist).
       - CANOPY_PUBLIC_HOST=${CANOPY_PUBLIC_HOST:?e.g. canopy.example.com}
-      # Optional: mark one host as SSO-protected by your proxy's forward-auth
-      # (requests on it carrying CANOPY_SSO_HEADER count as authenticated).
+      # Optional: mark one host as SSO-protected by your proxy's forward-auth.
+      # CANOPY_SSO_SECRET is required for SSO to be honoured at all — the proxy
+      # must inject it as X-Canopy-SSO-Secret. Identity headers only mean
+      # something on traffic that actually went through the proxy, and the
+      # shared secret is what establishes that. Without it Canopy leaves SSO
+      # off rather than accept a weaker path to authentication.
       # - CANOPY_SSO_HOST=canopy.example.com
+      # - CANOPY_SSO_SECRET=${CANOPY_SSO_SECRET}
       # - CANOPY_SSO_HEADER=x-auth-request-email
       # Optional: the origin the cockpit shows in its "connect an agent" command.
       # - CANOPY_MCP_ORIGIN=https://canopy-mcp.example.com
@@ -21,6 +26,14 @@ services:
     expose:
       - 4664
     shm_size: 1gb
+    # Chromium runs with --no-sandbox in here (Docker's seccomp profile blocks
+    # the namespace it needs), so a renderer bug is code execution next to the
+    # logged-in profile on /data. Keep the blast radius small.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
 
 volumes:
   canopy-data:

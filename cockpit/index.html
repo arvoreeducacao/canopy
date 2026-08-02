@@ -512,18 +512,12 @@
 
 <script>
 const $ = id => document.getElementById(id)
-const esc = s => (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
-// Cloud mode: the daemon gates everything behind the token. Open the cockpit
-// once as /?token=<token> — it lands in localStorage and leaves the URL.
-const TOKEN = (() => {
-  const q = new URLSearchParams(location.search)
-  if (q.get('token')) {
-    localStorage.setItem('canopy-token', q.get('token'))
-    history.replaceState(null, '', location.pathname)
-  }
-  return localStorage.getItem('canopy-token') || ''
-})()
-const tok = url => TOKEN ? url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) : url
+const esc = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+// The daemon gates every route behind the token and hands this page its
+// credential as an HttpOnly cookie, which the browser attaches to fetches,
+// <img> loads and the WebSocket handshake alike. Nothing here ever touches the
+// token: not this script, not the URL, not the proxy's access log.
+// Cloud mode: arrive once at /?token=<token> and the daemon sets the cookie.
 const state = { tabs: [], frames: {}, replay: null, playing: null, actionCount: 0 }
 
 const ICONS = {
@@ -594,7 +588,7 @@ function tile(t) {
   const frame = state.frames[t.id]
   const img = frame
     ? '<img src="data:image/jpeg;base64,' + frame + '">'
-    : '<img src="' + tok('/tabs/' + t.id + '/frame?t=' + Date.now()) + '" onerror="this.remove()">' +
+    : '<img src="' + '/tabs/' + t.id + '/frame?t=' + Date.now() + '" onerror="this.remove()">' +
       '<div class="skel"><span class="k">awaiting signal</span></div>'
   return '<article class="tile ' + status + '" id="tile-' + t.id + '">' +
     '<div class="tile-top">' +
@@ -668,7 +662,7 @@ function closeTile(tab) {
 }
 
 function connect() {
-  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + tok('/ws'))
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws')
   ws.onopen = () => {
     $('hudLink').classList.add('ok')
     $('hudLinkTxt').textContent = 'LIVE'
@@ -707,7 +701,7 @@ render()
 connect()
 
 // feed survives refresh: seed from the daemon's ring buffer
-fetch(tok('/actions?limit=60')).then(r => r.json()).then(list => {
+fetch('/actions?limit=60').then(r => r.json()).then(list => {
   $('evts').innerHTML = ''
   state.actionCount = 0
   list.forEach(d => pushAction(d, false))
@@ -724,7 +718,7 @@ $('navReplay').onclick = async () => {
   $('liveWrap').style.display = 'none'
   $('replayWrap').style.display = ''
   $('navLive').className = ''; $('navReplay').className = 'on'
-  const { recorded } = await fetch(tok('/sessions')).then(r => r.json())
+  const { recorded } = await fetch('/sessions').then(r => r.json())
   const sessions = recorded.filter(s => s.id !== 'default' || recorded.length === 1)
   $('sCount').textContent = sessions.length
   $('deckSessions').innerHTML = sessions.length ? '<em>' + pad2(sessions.length) + '</em>' : pad2(0)
@@ -751,7 +745,7 @@ function nearestFrame(ts) {
 
 async function loadReplay(id) {
   stopPlay()
-  const data = await fetch(tok('/replay/' + id)).then(r => r.json())
+  const data = await fetch('/replay/' + id).then(r => r.json())
   state.replay = { id, meta: data.meta, actions: data.actions, framesAll: data.frames, tabFilter: 'all' }
   document.querySelectorAll('.scard.on').forEach(el => el.classList.remove('on'))
   const sc = $('scard-' + id)
@@ -820,7 +814,7 @@ function showFrame(i) {
     return
   }
   const f = fr[i]
-  $('rimg').src = tok('/replay/' + r.id + '/frame/' + f.file)
+  $('rimg').src = '/replay/' + r.id + '/frame/' + f.file
   const t0 = fr[0].ts
   $('rtc').textContent = timecode(f.ts - t0)
   $('rtot').textContent = '/ ' + timecode(fr[fr.length - 1].ts - t0)

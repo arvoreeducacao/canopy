@@ -8,6 +8,32 @@ let ws = null
 const attached = new Set()
 const agentTabs = new Set()
 
+// Pairing secret, shared with the daemon (~/.canopy/ext-secret, shown by
+// `canopy pair`) and pasted into the options page once. It is what stops any
+// unprivileged local process that grabs port 4664 — squatting it before Canopy
+// starts, or in a restart window — from driving chrome.debugger over every tab
+// in this browser. Never sent on the wire: both sides prove it over a nonce.
+async function pairingSecret() {
+  const { canopySecret = '' } = await chrome.storage.local.get('canopySecret')
+  return canopySecret.trim()
+}
+
+function hex(buf) {
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function proof(secret, nonce) {
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return hex(await crypto.subtle.sign('HMAC', key, enc.encode(String(nonce))))
+}
+
+function badge(text, color, title) {
+  chrome.action.setBadgeText({ text })
+  if (color) chrome.action.setBadgeBackgroundColor({ color })
+  chrome.action.setTitle({ title: title || 'Canopy Bridge' })
+}
+
 // Agent tab ids also live in storage.session: it survives service-worker
 // restarts (unlike these Sets) and is cleared when the browser closes — so a
 // reconnecting daemon can find tabs a dead daemon left behind and close them.
@@ -36,23 +62,51 @@ function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
 }
 
-function connect() {
+async function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
+  const secret = await pairingSecret()
+  if (!secret) return badge('!', '#DC2626', 'Canopy Bridge — not paired. Click to enter the pairing code.')
   try { ws = new WebSocket(DAEMON) } catch { return }
-  ws.onopen = async () => {
-    const orphans = await liveAgentTabs().catch(() => [])
-    send({ event: 'hello', browser: navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium', orphans })
-    chrome.action.setBadgeText({ text: 'on' })
-    chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' })
-  }
+
+  // Handshake before anything else: we prove the secret to the daemon and the
+  // daemon proves it to us. Until both sides check out, no command is obeyed.
+  let paired = false
+  let refused = false
+  const myNonce = hex(crypto.getRandomValues(new Uint8Array(16)))
+  ws.onopen = () => send({ event: 'auth', nonce: myNonce })
   ws.onclose = () => {
     ws = null
-    chrome.action.setBadgeText({ text: '' })
+    // Keep the warning up: the alarm retries every ~24s, and a plain
+    // "disconnected" would hide the fact that something failed the check.
+    if (!refused) badge('', null, 'Canopy Bridge — disconnected')
   }
   ws.onerror = () => {}
   ws.onmessage = async e => {
     let msg
     try { msg = JSON.parse(e.data) } catch { return }
+
+    if (!paired) {
+      if (msg.event !== 'auth' || msg.proof !== await proof(secret, myNonce)) {
+        // Something is answering on 4664 that does not know the secret. Do not
+        // talk to it — it would be handing it this browser's debugger.
+        refused = true
+        badge('!', '#DC2626', 'Canopy Bridge — daemon failed the pairing check. Wrong code, or another process holds port 4664.')
+        try { ws.close() } catch {}
+        ws = null
+        return
+      }
+      paired = true
+      const orphans = await liveAgentTabs().catch(() => [])
+      send({
+        event: 'hello',
+        proof: await proof(secret, msg.nonce),
+        browser: navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium',
+        orphans
+      })
+      badge('on', '#F59E0B', 'Canopy Bridge — connected')
+      return
+    }
+
     // Daemon keepalive — receiving it already reset the SW idle timer.
     if (msg.event === 'ping') return
     const reply = payload => send({ id: msg.id, ...payload })
@@ -146,5 +200,15 @@ chrome.alarms.create('canopy-keepalive', { periodInMinutes: 0.4 })
 chrome.alarms.onAlarm.addListener(() => connect())
 chrome.runtime.onStartup.addListener(() => connect())
 chrome.runtime.onInstalled.addListener(() => connect())
-chrome.action.onClicked.addListener(() => connect())
+chrome.action.onClicked.addListener(async () => {
+  if (!await pairingSecret()) return chrome.runtime.openOptionsPage()
+  connect()
+})
+// Pasting a new code in the options page re-pairs without a browser restart.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.canopySecret) {
+    if (ws) { try { ws.close() } catch {} ; ws = null }
+    connect()
+  }
+})
 connect()

@@ -41,11 +41,14 @@
     "skills",
     "README.md",
     "SECURITY.md",
+    "PRIVACY.md",
     "LICENSE"
   ],
   "scripts": {
+    "test": "node --test test/security.mjs",
     "start": "node bin/canopy.js",
-    "chrome": "node bin/canopy.js --launch-chrome"
+    "chrome": "node bin/canopy.js --launch-chrome",
+    "build:extension": "./scripts/build-extension.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

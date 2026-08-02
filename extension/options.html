@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Canopy Bridge — pairing</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 14px/1.55 ui-sans-serif, -apple-system, system-ui, sans-serif;
+    max-width: 34rem; margin: 3rem auto; padding: 0 1.25rem;
+  }
+  h1 { font-size: 1.15rem; margin: 0 0 .35rem; }
+  p { margin: .6rem 0; opacity: .85; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(127,127,127,.16); padding: .1rem .35rem; border-radius: 4px;
+  }
+  input {
+    width: 100%; box-sizing: border-box; padding: .55rem .7rem; margin: .5rem 0 .75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .95rem;
+    border: 1px solid rgba(127,127,127,.45); border-radius: 6px;
+    background: transparent; color: inherit;
+  }
+  button {
+    padding: .5rem 1.1rem; font-size: .95rem; font-weight: 600; cursor: pointer;
+    border: 0; border-radius: 6px; background: #F59E0B; color: #1c1917;
+  }
+  #msg { margin-left: .75rem; font-weight: 600; }
+  .warn { border-left: 3px solid #F59E0B; padding-left: .85rem; }
+</style>
+</head>
+<body>
+  <h1>Pair with the Canopy daemon</h1>
+  <p>
+    This extension can attach Chrome's debugger to every tab in this browser. It
+    only obeys a daemon that proves it knows this code, so a stray local process
+    listening on port 4664 cannot take the bridge.
+  </p>
+  <p class="warn">
+    Get the code by running <code>canopy pair</code>, or read
+    <code>~/.canopy/ext-secret</code>.
+  </p>
+  <input id="secret" type="password" autocomplete="off" spellcheck="false" placeholder="pairing code">
+  <button id="save">Save</button><span id="msg"></span>
+  <script src="options.js"></script>
+</body>
+</html>

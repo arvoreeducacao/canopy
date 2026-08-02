@@ -83,9 +83,14 @@ use Claude Code, `setup` prints the equivalent `claude mcp add` command so you c
 your agent — the MCP endpoint is `http://127.0.0.1:4664/mcp` with
 `Authorization: Bearer $(cat ~/.canopy/token)`. (Or from a clone: `pnpm install && node bin/canopy.js`.)
 
-The daemon mints a token at `~/.canopy/token` on first run and requires it on every control
-surface (see [Security model](#security-model)). Then open the cockpit at
+The daemon mints a token at `~/.canopy/token` on first run and requires it on every route and
+socket (see [Security model](#security-model)). Then open the cockpit at
 **http://127.0.0.1:4664/** and ask your agent to do something on a website.
+
+If you use the browser extension, pair it once — run `canopy pair`, then paste the code into the
+extension's **Details → Extension options**. The extension will not talk to an unpaired daemon,
+which is what stops another local process from taking the bridge and, with it, the debugger on
+every tab in your browser.
 
 If the browser is closed when an agent asks for a tab, the daemon launches it in the background
 (Arc or Chrome, macOS) and waits for the bridge to come up — no manual step.
@@ -94,6 +99,7 @@ The same binary is also a small CLI against a running daemon:
 
 ```bash
 canopy setup                 # one-shot install: token, Claude Code MCP + skill (--launchd: start at login)
+canopy pair                  # print the code that pairs the browser extension
 canopy status                # connected browser + open agent tabs
 canopy open https://example.com --label "checking something"
 canopy tabs
@@ -120,6 +126,7 @@ pointing it at your logged-in session.
 ### Option B — your real browser (Arc, Chrome)
 
 1. Go to `arc://extensions` (or `chrome://extensions`) → enable **Developer mode** → **Load unpacked** → pick `extension/`
+   (a Chrome Web Store listing is in review — see [docs/chrome-web-store.md](docs/chrome-web-store.md))
 2. The extension badge reads `on` once it reaches the daemon.
 3. That's it. Agents now drive your real browser through `chrome.debugger` — no
    `--remote-debugging-port`, no separate profile, your logins intact.
@@ -243,8 +250,9 @@ docker run -d -p 4664:4664 \
 
 (or start from [docker-compose.cloud.yml](docker-compose.cloud.yml)). Point a TLS-terminating
 reverse proxy at port 4664 and connect agents to `https://canopy.example.com/mcp` with
-`Authorization: Bearer <token>`. Humans open the cockpit once as `/?token=<token>` — it lands in
-localStorage and leaves the URL.
+`Authorization: Bearer <token>`. Humans open the cockpit once as `/?token=<token>`: the daemon
+sets an `HttpOnly; Secure; SameSite=Strict` cookie and redirects, so the token leaves the URL and
+never becomes readable by page JavaScript.
 
 What changes when the bind leaves loopback:
 
@@ -255,6 +263,10 @@ What changes when the bind leaves loopback:
   `CANOPY_PUBLIC_HOST` are refused.
 - **The Chromium profile lives on the `/data` volume**, so logins the agent performs survive
   restarts and redeploys — the cloud equivalent of "the browser you are already logged into".
+- **Private networks are off limits** — RFC1918, loopback, link-local (`169.254.169.254`) and bare
+  single-label hostnames are refused, so a token holder cannot use the browser as an SSRF pivot
+  into the network the container sits in. Best-effort: a public name that *resolves* into private
+  space still gets through, so egress filtering in front of the container is the real control.
 
 | Env | What it does |
 |---|---|
@@ -262,15 +274,21 @@ What changes when the bind leaves loopback:
 | `CANOPY_PUBLIC_HOST` | Comma-separated Host allowlist (your public hostnames). |
 | `CANOPY_TOKEN` | Sets the API token explicitly (otherwise minted at `$CANOPY_DATA_DIR/token`). |
 | `CANOPY_DATA_DIR` | Data dir (token, sessions, profile). The image sets `/data`. |
-| `CANOPY_SSO_HOST` | Host whose requests arrive through your proxy's forward-auth (e.g. oauth2-proxy). On that host — and only there — a request carrying `CANOPY_SSO_HEADER` counts as authenticated, so SSO'd humans get the cockpit with no token. |
+| `CANOPY_SSO_HOST` | Host whose requests arrive through your proxy's forward-auth (e.g. oauth2-proxy). On that host — and only there — a request carrying `CANOPY_SSO_HEADER` **and** `CANOPY_SSO_SECRET` counts as authenticated, so SSO'd humans get the cockpit with no token. |
+| `CANOPY_SSO_SECRET` | **Required for SSO to work at all.** Your proxy must inject it as `X-Canopy-SSO-Secret`. Without it Canopy ignores `CANOPY_SSO_HOST` entirely — see the note below. |
 | `CANOPY_SSO_HEADER` | The identity header your forward-auth sets. Default `x-auth-request-email`. Only trust this if the middleware *overwrites* it (oauth2-proxy with `authResponseHeaders` does). |
+| `CANOPY_ALLOW_SCHEMES` | Extra URL schemes agents may navigate to, comma-separated. Default allows `http:`/`https:` only. |
 | `CANOPY_MCP_ORIGIN` | Origin the cockpit displays in its "connect an agent" command (useful when agents use a separate token-auth domain next to an SSO-protected cockpit domain). |
 | `CANOPY_CDP_URL` | Where the browser's CDP endpoint lives. Default `http://127.0.0.1:9222` (the in-container Chromium). |
 
 A practical two-domain setup: `canopy.example.com` → cockpit behind your SSO middleware
 (`CANOPY_SSO_HOST`), and `canopy-mcp.example.com` → token-only, for agents that can't do OAuth.
-Both point at the same container; the daemon only trusts the SSO header on the SSO host, because
-your proxy routes by Host and forward-auth runs before anything reaches the daemon.
+Both point at the same container.
+
+SSO is only as good as the guarantee that requests really came through your proxy, and Host-based
+routing alone does not give that guarantee for traffic that never passes the proxy. So Canopy also
+requires `CANOPY_SSO_SECRET`, a value only your proxy knows and injects. Set `CANOPY_SSO_HOST`
+without it and Canopy logs a warning and keeps SSO off, leaving the token as the only way in.
 
 One container is one browser (sessions are tab groups inside it) — multi-tenant means one
 container per tenant, each with its own token, volume and hostname.
@@ -282,23 +300,32 @@ section before pointing it at a profile that matters.
 
 What the design gives you:
 
-- **Token auth by default.** The daemon mints a random token at `~/.canopy/token` (mode `0600`)
-  on first run and requires `Authorization: Bearer <token>` on `/mcp`, on every mutating REST
-  route and on routes that read live page content (screenshots, text, snapshots, network).
-  Loopback is not a security boundary — any local process can reach `127.0.0.1` — so control of
-  your logged-in browser is gated on being able to read that file. `CANOPY_NO_AUTH=1` opts out.
-- **No CORS, Host validated.** REST responses carry no `Access-Control-Allow-Origin`, and
-  requests with a non-loopback `Host` header are refused (DNS-rebinding guard), so a web page you
-  have open cannot reach the daemon even for the unauthenticated cockpit feeds.
+- **Token auth on everything.** The daemon mints a random token at `~/.canopy/token` (mode `0600`)
+  on first run and requires it on every route and both WebSockets — the sole exception is the
+  cockpit shell at `/`, which carries no data. Loopback is not a security boundary — any local
+  process can reach `127.0.0.1` — so control of your logged-in browser, *and the recordings of
+  it*, are gated on being able to read that file. `CANOPY_NO_AUTH=1` opts out locally and is
+  refused outright on a non-loopback bind.
+- **The cockpit holds no credential.** It gets the token as an `HttpOnly; SameSite=Strict` cookie:
+  unreadable from page JavaScript, absent from the URL and from proxy logs.
+- **No CORS, Host and Origin validated.** REST responses carry no `Access-Control-Allow-Origin`,
+  and a non-loopback `Host` is refused (DNS-rebinding guard). WebSockets are exempt from CORS, so
+  `/ws` also requires that any `Origin` present match the `Host` — that is what stops a page you
+  have open from dialing `127.0.0.1` and subscribing to the live frames of every agent tab.
+- **The extension bridge is paired.** Extension and daemon prove a shared secret to each other
+  (HMAC over a nonce; the secret never crosses the wire), so no web page and no port-squatting
+  local process can pose as either. Pair once with `canopy pair`.
+- **`http(s)` only.** `file:`, `chrome:`, `devtools:` and `view-source:` are refused, so a
+  navigation cannot turn into a file read. `CANOPY_ALLOW_SCHEMES=file:` opts back in.
 - **Loopback only by default.** Nothing listens on a routable interface unless you explicitly
-  enable [cloud mode](#cloud-mode) — and there, every route including the cockpit's own feeds
-  requires the token (or proxy SSO), and the Host header must match `CANOPY_PUBLIC_HOST`.
+  enable [cloud mode](#cloud-mode) — and there, private and link-local destinations are blocked
+  too, so the browser cannot be used as an SSRF pivot into the network it sits in.
 - **Your data stays local.** Recordings are files in your home directory. Canopy ships no
-  telemetry and talks to no server of ours. (The cockpit's own read feeds — live frames, the
-  action log, replays — stay tokenless so the UI works, which means other *local* processes can
-  view them; treat recordings as screenshots of whatever the agent saw.)
+  telemetry and talks to no server of ours. Treat recordings as screenshots of whatever the agent
+  saw — because that is what they are.
 - **Passwords are skipped.** `browser_snapshot` records the value of every field except
-  `type="password"`.
+  `type="password"` — so a one-time code typed into an ordinary text field *does* land in the
+  snapshot and the action log.
 - **Visible by construction.** An agent cannot drive a tab without the veil, the pill, the marked
   title and the cockpit tile. There is no silent mode, on purpose.
 - **Prompt injection is the real risk.** An agent reading a page with your cookies can be
@@ -307,8 +334,13 @@ What the design gives you:
 
 The extension requests `debugger` and `<all_urls>`, which is the maximum a Chrome extension can
 ask for. That is inherent to the goal — driving arbitrary pages in a browser that exposes no CDP
-port — and it is why the extension is loaded unpacked from source you can read (~170 lines)
+port — and it is why the extension is loaded unpacked from source you can read (~200 lines)
 rather than shipped through the Web Store.
+
+[Cloud mode](#cloud-mode) is a different risk posture and worth naming as such: one static token
+with no rotation or per-user identity, and a container whose Chromium runs `--no-sandbox`, sitting
+next to a logged-in profile on a volume. If you point `CANOPY_SSO_HOST` at an SSO-protected
+hostname you **must** also set `CANOPY_SSO_SECRET` — see [SECURITY.md](SECURITY.md).
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
