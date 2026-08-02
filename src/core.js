@@ -202,6 +202,11 @@ export class Controller extends EventEmitter {
     // catch, dead API host, 401 on login) looks identical to one that worked
     // from the DOM alone. These are what make the difference visible.
     await send('Log.enable').catch(() => {})
+    // Learn the top frame's id before the first navigation, so the very first
+    // request already knows whether it is the page or something the page embeds.
+    await send('Page.getFrameTree')
+      .then(r => { tab.mainFrameId = r?.frameTree?.frame?.id })
+      .catch(() => {})
     await send('Runtime.addBinding', { name: '__canopyControl' }).catch(() => {})
     // Screencast only streams while someone is actually watching the cockpit —
     // it is the main constant CPU cost otherwise.
@@ -289,6 +294,12 @@ export class Controller extends EventEmitter {
     if (stopRequested !== undefined) tab.stopRequested = !!stopRequested
     if (tab.takenOver || tab.stopRequested) {
       this.eval(id, BADGE_OFF, { silent: true }).catch(() => {})
+      // Handing the tab back means handing it back intact. An emulated viewport
+      // outlives the agent otherwise — and #guard then refuses the very call
+      // that would undo it, so the user is left with a phone-sized tab that
+      // turns their mouse into touch events and nobody able to fix it.
+      tab.transport.send(tab.ref, 'Emulation.clearDeviceMetricsOverride').catch(() => {})
+      tab.transport.send(tab.ref, 'Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
       tab.driving = false
     } else {
       this.#applyBadge(tab).catch(() => {})
@@ -494,8 +505,13 @@ export class Controller extends EventEmitter {
     } else {
       const w = Math.round(width), h = Math.round(height)
       if (!(w > 0 && h > 0)) throw new Error('resize needs width and height (or reset:true)')
+      // Unbounded metrics are a memory-amplification primitive: the renderer is
+      // asked to rasterise whatever surface it is given, and a fractional scale
+      // factor multiplies it again at screenshot time.
+      if (w > 8000 || h > 8000) throw new Error('resize is capped at 8000x8000 — a larger surface is a rasterisation bomb, not a viewport')
+      const dsf = clamp(deviceScaleFactor, 0.5, 4)
       await tab.transport.send(tab.ref, 'Emulation.setDeviceMetricsOverride', {
-        width: w, height: h, deviceScaleFactor, mobile: !!mobile, screenWidth: w, screenHeight: h
+        width: w, height: h, deviceScaleFactor: dsf, mobile: !!mobile, screenWidth: w, screenHeight: h
       })
       await tab.transport.send(tab.ref, 'Emulation.setTouchEmulationEnabled', { enabled: !!mobile, maxTouchPoints: mobile ? 5 : 0 }).catch(() => {})
     }
@@ -521,7 +537,10 @@ export class Controller extends EventEmitter {
       // clip.scale multiplies the device scale factor rather than replacing it,
       // so on a retina display scale:1 still yields a 2x image — and every
       // coordinate read off that image lands at twice its intended place.
-      const dpr = Number(await this.eval(id, 'devicePixelRatio', { silent: true }).catch(() => 1)) || 1
+      // devicePixelRatio is read out of the page, and a page can redefine it —
+      // an unclamped 1/dpr turns a screenshot into a request to rasterise
+      // millions of pixels per side.
+      const dpr = clamp(Number(await this.eval(id, 'devicePixelRatio', { silent: true }).catch(() => 1)) || 1, 0.5, 4)
       params.clip = {
         x: Math.round(box.pageX || box.x || 0),
         y: Math.round(box.pageY || box.y || 0),
@@ -601,6 +620,15 @@ export class Controller extends EventEmitter {
     }
     if (evt.method === 'Page.frameNavigated' && !evt.params.frame.parentId) {
       tab.url = evt.params.frame.url
+      tab.mainFrameId = evt.params.frame.id
+      // A main-frame navigation that arrived is, by definition, not the failed
+      // one — otherwise the warning outlives the page it was about. Chrome's
+      // own error page also navigates here, and it carries unreachableUrl:
+      // that one must keep the warning it was created by.
+      if (!evt.params.frame.unreachableUrl) {
+        tab.navError = null
+        tab.navErrorUrl = null
+      }
       if (tab.driving) setTimeout(() => this.#applyBadge(tab), 600)
       this.#state()
       return
@@ -630,7 +658,13 @@ export class Controller extends EventEmitter {
       if (request.url.startsWith('data:')) return
       // Every request's identity is kept (cheaply) so a later failure can name
       // the URL, even for types the agent-facing buffer does not collect.
-      tab.reqUrls.set(requestId, { url: request.url, method: request.method, type })
+      // Only the top frame's own document is "the page". Every frame's main
+      // resource has requestId === loaderId, iframes included, so the frame id
+      // is the only thing that distinguishes them — and without that, any dead
+      // third-party iframe would announce that the page failed to load, with an
+      // attacker-chosen URL printed above everything else.
+      const main = type === 'Document' && !!tab.mainFrameId && evt.params.frameId === tab.mainFrameId
+      tab.reqUrls.set(requestId, { url: request.url, method: request.method, type, main })
       if (tab.reqUrls.size > 400) tab.reqUrls.delete(tab.reqUrls.keys().next().value)
       if (!['XHR', 'Fetch', 'Document'].includes(type)) return
       tab.requests.push({
@@ -665,12 +699,13 @@ export class Controller extends EventEmitter {
       if (!['XHR', 'Fetch', 'Document', 'Script', 'Stylesheet'].includes(kind)) return
       const why = blockedReason ? `blocked (${blockedReason})` : errorText || 'failed'
       this.#note(tab, 'error', `${kind} ${meta.method || ''} ${meta.url || '?'} — ${why}`, { source: 'network' })
-      // A dead document request is the one failure worth putting in the replay:
-      // it is why the page "just did nothing", and it is rare enough not to spam.
-      if (kind === 'Document') {
+      // A dead main-frame navigation is the one failure worth putting in the
+      // replay: it is why the page "just did nothing", and it is rare enough
+      // not to spam. Subframes fail all the time and are not the page.
+      if (meta.main) {
         tab.navError = why
-        tab.navErrorUrl = meta.url
-        this.#log(tab, 'neterror', { url: meta.url, error: why })
+        tab.navErrorUrl = String(meta.url || '').slice(0, 200)
+        this.#log(tab, 'neterror', { url: tab.navErrorUrl, error: why })
       }
     }
   }
@@ -678,7 +713,9 @@ export class Controller extends EventEmitter {
   // ---- console / problems ----
 
   #note(tab, level, text, extra = {}) {
-    const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+    // Newlines collapse and the block's own gutter marker is stripped, so a
+    // page cannot forge extra entries inside the warning block it can write to.
+    const clean = String(text || '').replace(/\s+/g, ' ').replace(/^[|⚠\s]+/, '').trim().slice(0, 400)
     if (!clean) return
     const last = tab.messages[tab.messages.length - 1]
     if (last && last.level === level && last.text === clean) {
@@ -699,14 +736,28 @@ export class Controller extends EventEmitter {
     return list
   }
 
+  // Un-see problems reported into a snapshot that got thrown away, so the
+  // replacement snapshot carries them instead of dropping them on the floor.
+  rewindProblems(id, problems) {
+    if (!problems?.length) return
+    const tab = this.getTab(id)
+    tab.msgCursor = Math.min(tab.msgCursor, problems[0].seq - 1)
+  }
+
   consoleMessages(id, { level = 'error', limit = 30, clear = false } = {}) {
     const tab = this.getTab(id)
     const keep = level === 'all' ? ['error', 'warn', 'log'] : level === 'warn' ? ['error', 'warn'] : ['error']
-    const list = tab.messages.filter(m => keep.includes(m.level)).slice(-limit)
-    tab.msgCursor = tab.msgSeq
+    const matching = tab.messages.filter(m => keep.includes(m.level))
+    const list = matching.slice(-limit)
+    // `limit` drops the OLDEST matches, and reading the log marks everything up
+    // to the newest as delivered — so without saying how many were withheld,
+    // this tool would silently swallow errors. That is the failure mode it
+    // exists to prevent, so the count travels with the answer.
+    const omitted = matching.length - list.length
+    if (list.length) tab.msgCursor = Math.max(tab.msgCursor, list[list.length - 1].seq)
     if (clear) tab.messages = []
-    this.#log(tab, 'console', { level, shown: list.length })
-    return list.map(({ seq, ...m }) => m)
+    this.#log(tab, 'console', { level, shown: list.length, omitted })
+    return { messages: list.map(({ seq, ...m }) => m), total: matching.length, omitted }
   }
 
   listRequests(id, { filter, limit = 40 } = {}) {
@@ -756,6 +807,8 @@ export class Controller extends EventEmitter {
     this.emit('state', this.status())
   }
 }
+
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, Number(n) || lo))
 
 // CDP RemoteObject -> short printable string, for console.* arguments.
 function fmtRemote(a) {

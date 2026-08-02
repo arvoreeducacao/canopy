@@ -44,6 +44,9 @@ function buildServer(controller) {
     await controller.waitFor(tab.id, { until: 'load', timeoutMs: 12000 }).catch(() => {})
     let snap = await controller.snapshot(tab.id)
     if (snap.snap.elements.length < 3 && !tab.navError) {
+      // This snapshot is about to be discarded — its errors must not be, or a
+      // page with few controls silently loses everything its console said.
+      controller.rewindProblems(tab.id, snap.problems)
       await new Promise(r => setTimeout(r, 1500))
       snap = await controller.snapshot(tab.id)
     }
@@ -150,8 +153,10 @@ function buildServer(controller) {
       clear: z.boolean().optional().describe('Empty the buffer after reading, to isolate what the next step produces')
     }
   }, async ({ tab, level, limit, clear }) => {
-    const list = controller.consoleMessages(tab, { level, limit, clear })
-    return text(list.length ? list : 'no messages captured at this level')
+    const { messages, omitted } = controller.consoleMessages(tab, { level, limit, clear })
+    if (!messages.length) return text('no messages captured at this level')
+    const head = omitted ? `showing the ${messages.length} most recent of ${messages.length + omitted} — raise limit to see the older ones\n` : ''
+    return text(`${head}${JSON.stringify(messages, null, 2)}`)
   })
 
   server.registerTool('browser_requests', {
