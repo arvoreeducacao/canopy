@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Canopy Bridge",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Lets AI agents drive this browser through the local Canopy daemon — visible AI cursor, tab badges and a live cockpit.",
   "homepage_url": "https://github.com/arvoreeducacao/canopy",
   "minimum_chrome_version": "116",
