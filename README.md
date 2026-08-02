@@ -165,17 +165,37 @@ makes watching safe, so control only moves when you actually ask for it.
 | `browser_tabs` | List the agent's tabs (never yours). |
 | `browser_navigate` | Navigate an existing tab. |
 | `browser_snapshot` | Interactive elements as numbered refs — the cheap alternative to screenshots. |
-| `browser_act` | `click` · `fill` · `press` · `scroll`, each with the animated cursor and keystroke HUD. |
+| `browser_act` | `click` · `fill` · `press` · `scroll`, each with the animated cursor and keystroke HUD. Refuses hidden or covered refs, and reports what changed. |
 | `browser_read` | Page text. |
 | `browser_eval` | Run JS in the page — *code mode*, see below. |
 | `browser_wait` | Wait `until` a selector, text, JS expression or `load`. |
-| `browser_screenshot` | PNG, for when the DOM is ambiguous. |
+| `browser_screenshot` | PNG at 1:1 with CSS pixels, so coordinates read off it are valid click targets. |
+| `browser_console` | Console errors, uncaught exceptions and failed/4xx-5xx requests — why a page "just does nothing". |
+| `browser_resize` | Emulate a viewport (`phone` · `tablet` · `desktop` · `wide`, or explicit size) without touching the user's window. |
 | `browser_requests` / `browser_request_body` | Inspect the XHR/Fetch the page made, and their responses. |
 | `browser_close` | Close a tab. |
 
 A REST mirror of the same surface lives on the daemon (`/status`, `/tabs`, `/tabs/:id/act`, …) if
 you would rather drive it with `curl`. `skills/canopy/` packages the usage patterns below as a
 Claude Code skill.
+
+### Failures are not silent
+
+The expensive failure mode in browser automation is not the error — it is the step that returns
+successfully and does nothing. A dead API host behind a swallowed `catch`, a click that lands on a
+modal still hidden in its portal, a 401 that leaves the page exactly as it was. The agent moves on,
+and finds out ten steps later. So Canopy makes each of those visible at the moment it happens:
+
+- Console errors, uncaught exceptions and failed or 4xx/5xx requests are captured per tab and
+  **injected into every snapshot and every action result** as a `⚠` block — no extra call needed.
+  `browser_console` has the full log.
+- A navigation that never resolved is reported as `⚠ THE PAGE DID NOT LOAD: net::ERR_NAME_NOT_RESOLVED`
+  instead of a clean snapshot of Chrome's error page.
+- Snapshots omit elements that are not really on screen — inside `aria-hidden`, `inert`, a
+  zero-opacity wrapper — and `browser_act` refuses a ref that is hidden or covered, naming whatever
+  sits on top of it.
+- Every action returns an `after:` line (`text changed`, `interactive elements 4 -> 6`,
+  or `NO CHANGE DETECTED`), so "the click worked" is an observation rather than an assumption.
 
 ## The cheap path: code mode and API mining
 
@@ -379,7 +399,8 @@ reconnect (the extension remembers them in `chrome.storage.session`).
 - Snapshots cap at ~180 elements (form fields always included). Long pages: scroll and re-snapshot, or go code mode.
 - **Every action costs ~520 ms** — cursor travel and settle time, so a human can follow along. A raw
   CDP click is ~10× faster. That is the price of the overlay, and the reason long repetitive runs
-  belong in code mode rather than in `browser_act`.
+  belong in code mode rather than in `browser_act`. The post-action change check adds ~250 ms on top;
+  `verify: false` buys it back for steps whose effect you are about to read anyway.
 - Refs are positional: reshuffle the DOM between a snapshot and an act and the ref can go stale.
   Shadow DOM and cross-origin iframes are not reachable yet.
 

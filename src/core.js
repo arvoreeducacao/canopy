@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { OVERLAY_SETUP, BADGE_ON, BADGE_OFF, cursorCall } from './overlay.js'
-import { SNAPSHOT_JS, refCenterJs, focusRefJs, formatSnapshot } from './snapshot.js'
+import { SNAPSHOT_JS, PROBE_JS, refCenterJs, focusRefJs, formatSnapshot, formatProblems } from './snapshot.js'
 
 const KEYS = {
   Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
@@ -173,6 +173,10 @@ export class Controller extends EventEmitter {
       driving: true,
       steps: 0,
       requests: [],
+      reqUrls: new Map(),
+      messages: [],
+      msgSeq: 0,
+      msgCursor: 0,
       createdAt: Date.now()
     }
     this.tabs.set(tab.id, tab)
@@ -194,6 +198,10 @@ export class Controller extends EventEmitter {
     // focused (same trick Puppeteer uses) — without this, key events are flaky.
     await send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
     await send('Network.enable', { maxPostDataSize: 32768 }).catch(() => {})
+    // Console + browser log domains: a page that fails silently (swallowed
+    // catch, dead API host, 401 on login) looks identical to one that worked
+    // from the DOM alone. These are what make the difference visible.
+    await send('Log.enable').catch(() => {})
     await send('Runtime.addBinding', { name: '__canopyControl' }).catch(() => {})
     // Screencast only streams while someone is actually watching the cockpit —
     // it is the main constant CPU cost otherwise.
@@ -325,9 +333,10 @@ export class Controller extends EventEmitter {
     const snap = JSON.parse(raw)
     tab.url = snap.url
     tab.title = snap.title
-    this.#log(tab, 'snapshot', { url: snap.url, elements: snap.elements.length })
+    const problems = this.unseenProblems(tab)
+    this.#log(tab, 'snapshot', { url: snap.url, elements: snap.elements.length, problems: problems.length })
     this.#state()
-    return { snap, text: formatSnapshot(snap) }
+    return { snap, problems, text: formatSnapshot(snap, problems) }
   }
 
   async readPage(id, maxChars = 12000) {
@@ -342,16 +351,29 @@ export class Controller extends EventEmitter {
     this.#guard(tab)
     if (label) tab.label = label
     tab.url = normalizeUrl(url, this.restrictUrls)
+    tab.navError = null
+    tab.navErrorUrl = null
     await tab.transport.send(tab.ref, 'Page.navigate', { url: tab.url })
     this.#log(tab, 'navigate', { url: tab.url, label })
     this.#state()
   }
 
-  async #point(tab, { ref, x, y }, focus = false) {
+  async #point(tab, { ref, x, y, force }, focus = false) {
     if (ref !== undefined && ref !== null) {
       const raw = await this.eval(tab.id, focus ? focusRefJs(ref) : refCenterJs(ref), { silent: true })
       const pos = JSON.parse(raw)
       if (pos.error) throw new Error(pos.error)
+      // A ref can point at something that is in the DOM but not really there:
+      // a modal still hidden in its portal, a control behind an overlay. The
+      // dispatch would "succeed" and change nothing, so refuse instead.
+      if (!force) {
+        if (pos.hidden) {
+          throw new Error(`ref ${ref} (${pos.desc || 'element'}) is in the DOM but not visible — it is probably a closed modal/menu. Open it first and take a new snapshot, or pass force:true.`)
+        }
+        if (!focus && pos.blocked) {
+          throw new Error(`ref ${ref} (${pos.desc || 'element'}) is covered at (${pos.x},${pos.y}) by ${pos.blocked} — the click would hit that instead. Take a new snapshot (the overlay may be a modal that is now open), or pass force:true.`)
+        }
+      }
       await sleep(120)
       return pos
     }
@@ -359,7 +381,32 @@ export class Controller extends EventEmitter {
     return { x: Math.round(x), y: Math.round(y) }
   }
 
-  async act(id, { action, ref, x, y, text, key, dy, dx, label, button, double }) {
+  // Cheap "did anything happen?" fingerprint, taken before and after an action.
+  async #probe(tab) {
+    try { return JSON.parse(await this.eval(tab.id, PROBE_JS, { silent: true })) } catch { return null }
+  }
+
+  #verdict(before, after, problems) {
+    if (!before || !after) return problems.length ? formatProblems(problems) : undefined
+    const bits = []
+    if (before.url !== after.url) bits.push(`url -> ${after.url}`)
+    if (before.title !== after.title) bits.push(`title -> "${after.title}"`)
+    if (before.dialogs !== after.dialogs) bits.push(`open dialogs ${before.dialogs} -> ${after.dialogs}`)
+    if (before.acts !== after.acts) bits.push(`interactive elements ${before.acts} -> ${after.acts} (take a new snapshot — refs moved)`)
+    const dText = after.len - before.len
+    const dNodes = after.nodes - before.nodes
+    if (before.sig !== after.sig) bits.push(`text changed (${dText >= 0 ? '+' : ''}${dText} chars)`)
+    if (dNodes) bits.push(`dom ${dNodes > 0 ? '+' : ''}${dNodes} nodes`)
+    // Focus moves on every click, so on its own it proves nothing about whether
+    // the page reacted — it is a footnote, never the evidence.
+    const focus = before.active !== after.active ? ` (focus -> ${after.active || 'none'})` : ''
+    const summary = bits.length
+      ? `changed: ${bits.join(' · ')}${focus}`
+      : `NO CHANGE DETECTED${focus} — the page did not react; do not assume this step worked (re-snapshot or screenshot before moving on)`
+    return problems.length ? `${summary}\n${formatProblems(problems)}` : summary
+  }
+
+  async act(id, { action, ref, x, y, text, key, dy, dx, label, button, double, force, verify }) {
     const tab = this.getTab(id)
     this.#guard(tab)
     if (label) tab.label = label
@@ -368,9 +415,20 @@ export class Controller extends EventEmitter {
     // The overlay blocks human input while the agent owns the tab; CDP input is
     // just as "trusted", so we open a narrow pass-through around our dispatches.
     const allow = on => this.eval(tab.id, `window.__canopyAllow = ${on ? 'true' : 'false'}`, { silent: true, awaitPromise: false }).catch(() => {})
+    // Optimistic sequencing is how an agent ends up clicking three buttons of a
+    // modal that never opened. Every action reports what actually changed.
+    const checking = verify !== false && action !== 'scroll'
+    const before = checking ? await this.#probe(tab) : null
+    const settle = async result => {
+      if (!checking) return result
+      await sleep(400)
+      const after = await this.#probe(tab)
+      const verdict = this.#verdict(before, after, this.unseenProblems(tab))
+      return verdict ? { ...result, after: verdict } : result
+    }
 
     if (action === 'click') {
-      const p = await this.#point(tab, { ref, x, y })
+      const p = await this.#point(tab, { ref, x, y, force })
       await this.#cursor(tab, 'move', [p.x, p.y, labelJs])
       await sleep(420)
       await this.#cursor(tab, 'ripple', [p.x, p.y])
@@ -384,12 +442,12 @@ export class Controller extends EventEmitter {
       }
       await allow(false)
       this.#log(tab, 'click', { ref, x: p.x, y: p.y, label })
-      return { clicked: p }
+      return settle({ clicked: p, on: p.desc })
     }
 
     if (action === 'fill') {
       if (typeof text !== 'string') throw new Error('fill requires text')
-      const p = await this.#point(tab, { ref, x, y }, true)
+      const p = await this.#point(tab, { ref, x, y, force }, true)
       await this.#cursor(tab, 'move', [p.x, p.y, labelJs])
       await this.#cursor(tab, 'key', [JSON.stringify('⌨ ' + (text.length > 22 ? text.slice(0, 22) + '…' : text))])
       await sleep(300)
@@ -397,7 +455,7 @@ export class Controller extends EventEmitter {
       await send('Input.insertText', { text })
       await allow(false)
       this.#log(tab, 'fill', { ref, chars: text.length, label })
-      return { filled: true }
+      return settle({ filled: true, on: p.desc })
     }
 
     if (action === 'press') {
@@ -411,7 +469,7 @@ export class Controller extends EventEmitter {
       await send('Input.dispatchKeyEvent', { type: 'keyUp', ...def })
       await allow(false)
       this.#log(tab, 'press', { key, label })
-      return { pressed: key }
+      return settle({ pressed: key })
     }
 
     if (action === 'scroll') {
@@ -425,11 +483,71 @@ export class Controller extends EventEmitter {
     throw new Error(`unknown action "${action}" — use click | fill | press | scroll`)
   }
 
-  async screenshot(id) {
+  // Emulated viewport (the OS window is untouched — this resizes what the page
+  // renders into, which is what a background agent tab actually needs).
+  async resize(id, { width, height, deviceScaleFactor = 1, mobile = false, reset = false } = {}) {
     const tab = this.getTab(id)
-    const { data } = await tab.transport.send(tab.ref, 'Page.captureScreenshot', { format: 'png' })
-    this.#log(tab, 'screenshot', {})
-    return data
+    this.#guard(tab)
+    if (reset) {
+      await tab.transport.send(tab.ref, 'Emulation.clearDeviceMetricsOverride')
+      await tab.transport.send(tab.ref, 'Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
+    } else {
+      const w = Math.round(width), h = Math.round(height)
+      if (!(w > 0 && h > 0)) throw new Error('resize needs width and height (or reset:true)')
+      await tab.transport.send(tab.ref, 'Emulation.setDeviceMetricsOverride', {
+        width: w, height: h, deviceScaleFactor, mobile: !!mobile, screenWidth: w, screenHeight: h
+      })
+      await tab.transport.send(tab.ref, 'Emulation.setTouchEmulationEnabled', { enabled: !!mobile, maxTouchPoints: mobile ? 5 : 0 }).catch(() => {})
+    }
+    const vp = await this.eval(id, 'JSON.stringify([innerWidth, innerHeight, devicePixelRatio])', { silent: true })
+    const [vw, vh, dpr] = JSON.parse(vp)
+    this.#log(tab, 'resize', { width: vw, height: vh, reset: !!reset })
+    return { viewport: [vw, vh], devicePixelRatio: dpr, emulated: !reset }
+  }
+
+  // Screenshots are clipped to the visual viewport at scale 1, so one image
+  // pixel is one CSS pixel and coordinates read off the image can be passed
+  // straight back to act(). Without the clip, a 2x display returns a 2x image
+  // and every coordinate derived from it lands in the wrong place.
+  async screenshot(id, { fullPage = false } = {}) {
+    const tab = this.getTab(id)
+    const send = (m, p) => tab.transport.send(tab.ref, m, p)
+    const metrics = await send('Page.getLayoutMetrics').catch(() => null)
+    const params = { format: 'png' }
+    const box = fullPage
+      ? metrics && (metrics.cssContentSize || metrics.contentSize)
+      : metrics && (metrics.cssVisualViewport || metrics.visualViewport)
+    if (box) {
+      // clip.scale multiplies the device scale factor rather than replacing it,
+      // so on a retina display scale:1 still yields a 2x image — and every
+      // coordinate read off that image lands at twice its intended place.
+      const dpr = Number(await this.eval(id, 'devicePixelRatio', { silent: true }).catch(() => 1)) || 1
+      params.clip = {
+        x: Math.round(box.pageX || box.x || 0),
+        y: Math.round(box.pageY || box.y || 0),
+        width: Math.round(box.clientWidth || box.width),
+        height: Math.round(box.clientHeight || box.height),
+        scale: 1 / dpr
+      }
+      if (fullPage) params.captureBeyondViewport = true
+    }
+    let { data } = await send('Page.captureScreenshot', params)
+    // An emulated viewport can be larger than the real window, and Chrome then
+    // hands back an empty capture instead of an error — which an agent would
+    // read as a blank page. Widen the render, then drop the clip entirely
+    // (that path always works, at the display's pixel ratio) before giving up.
+    if (!data && params.clip) {
+      ;({ data } = await send('Page.captureScreenshot', { ...params, captureBeyondViewport: true }))
+      if (!data) {
+        delete params.clip
+        ;({ data } = await send('Page.captureScreenshot', { format: 'png' }))
+      }
+    }
+    if (!data) throw new Error('Chrome returned an empty screenshot — the tab may be mid-navigation; retry or call browser_wait first')
+    const size = pngSize(data)
+    const viewport = params.clip ? [params.clip.width, params.clip.height] : (box ? [Math.round(box.clientWidth || box.width), Math.round(box.clientHeight || box.height)] : null)
+    this.#log(tab, 'screenshot', { fullPage, size: size ? `${size.width}x${size.height}` : undefined })
+    return { data, size, viewport }
   }
 
   async waitFor(id, { until = 'js', value, timeoutMs = 15000 } = {}) {
@@ -487,10 +605,34 @@ export class Controller extends EventEmitter {
       this.#state()
       return
     }
+    if (evt.method === 'Runtime.consoleAPICalled') {
+      const level = evt.params.type === 'error' ? 'error'
+        : ['warning', 'assert'].includes(evt.params.type) ? 'warn' : 'log'
+      this.#note(tab, level, (evt.params.args || []).map(fmtRemote).filter(Boolean).join(' '), { source: 'console' })
+      return
+    }
+    if (evt.method === 'Runtime.exceptionThrown') {
+      const d = evt.params.exceptionDetails || {}
+      const where = d.url ? ` (${d.url.split('/').pop()}:${(d.lineNumber || 0) + 1})` : ''
+      this.#note(tab, 'error', (d.exception?.description || d.text || 'uncaught exception') + where, { source: 'exception' })
+      return
+    }
+    if (evt.method === 'Log.entryAdded') {
+      const e = evt.params.entry || {}
+      // Network entries are covered with more detail by the handlers below.
+      if (e.source === 'network') return
+      const level = e.level === 'error' ? 'error' : e.level === 'warning' ? 'warn' : 'log'
+      this.#note(tab, level, e.text, { source: e.source || 'log' })
+      return
+    }
     if (evt.method === 'Network.requestWillBeSent') {
-      const { requestId, request, type, timestamp } = evt.params
-      if (!['XHR', 'Fetch', 'Document'].includes(type)) return
+      const { requestId, request, type } = evt.params
       if (request.url.startsWith('data:')) return
+      // Every request's identity is kept (cheaply) so a later failure can name
+      // the URL, even for types the agent-facing buffer does not collect.
+      tab.reqUrls.set(requestId, { url: request.url, method: request.method, type })
+      if (tab.reqUrls.size > 400) tab.reqUrls.delete(tab.reqUrls.keys().next().value)
+      if (!['XHR', 'Fetch', 'Document'].includes(type)) return
       tab.requests.push({
         id: requestId, ts: Date.now(), type,
         method: request.method, url: request.url,
@@ -506,7 +648,65 @@ export class Controller extends EventEmitter {
         r.status = evt.params.response.status
         r.mimeType = evt.params.response.mimeType
       }
+      const status = evt.params.response.status
+      if (status >= 400 && ['XHR', 'Fetch', 'Document'].includes(evt.params.type)) {
+        const meta = tab.reqUrls.get(evt.params.requestId) || {}
+        this.#note(tab, 'error', `HTTP ${status} ${meta.method || ''} ${evt.params.response.url}`, { source: 'network', status })
+      }
+      return
     }
+    if (evt.method === 'Network.loadingFailed') {
+      const { requestId, errorText, canceled, type, blockedReason } = evt.params
+      if (canceled && !blockedReason) return
+      const meta = tab.reqUrls.get(requestId) || {}
+      const r = tab.requests.find(x => x.id === requestId)
+      if (r) r.failed = errorText || blockedReason
+      const kind = type || meta.type || 'request'
+      if (!['XHR', 'Fetch', 'Document', 'Script', 'Stylesheet'].includes(kind)) return
+      const why = blockedReason ? `blocked (${blockedReason})` : errorText || 'failed'
+      this.#note(tab, 'error', `${kind} ${meta.method || ''} ${meta.url || '?'} — ${why}`, { source: 'network' })
+      // A dead document request is the one failure worth putting in the replay:
+      // it is why the page "just did nothing", and it is rare enough not to spam.
+      if (kind === 'Document') {
+        tab.navError = why
+        tab.navErrorUrl = meta.url
+        this.#log(tab, 'neterror', { url: meta.url, error: why })
+      }
+    }
+  }
+
+  // ---- console / problems ----
+
+  #note(tab, level, text, extra = {}) {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+    if (!clean) return
+    const last = tab.messages[tab.messages.length - 1]
+    if (last && last.level === level && last.text === clean) {
+      last.count += 1
+      last.ts = Date.now()
+      return
+    }
+    tab.messages.push({ seq: ++tab.msgSeq, ts: Date.now(), level, text: clean, count: 1, ...extra })
+    if (tab.messages.length > 200) tab.messages.splice(0, tab.messages.length - 200)
+  }
+
+  // Errors the agent has not been shown yet. Snapshots and actions report these
+  // inline, so a silent failure surfaces at the moment it happens instead of
+  // ten steps later.
+  unseenProblems(tab, { markSeen = true } = {}) {
+    const list = tab.messages.filter(m => m.seq > tab.msgCursor && m.level === 'error')
+    if (markSeen) tab.msgCursor = tab.msgSeq
+    return list
+  }
+
+  consoleMessages(id, { level = 'error', limit = 30, clear = false } = {}) {
+    const tab = this.getTab(id)
+    const keep = level === 'all' ? ['error', 'warn', 'log'] : level === 'warn' ? ['error', 'warn'] : ['error']
+    const list = tab.messages.filter(m => keep.includes(m.level)).slice(-limit)
+    tab.msgCursor = tab.msgSeq
+    if (clear) tab.messages = []
+    this.#log(tab, 'console', { level, shown: list.length })
+    return list.map(({ seq, ...m }) => m)
   }
 
   listRequests(id, { filter, limit = 40 } = {}) {
@@ -555,6 +755,36 @@ export class Controller extends EventEmitter {
   #state() {
     this.emit('state', this.status())
   }
+}
+
+// CDP RemoteObject -> short printable string, for console.* arguments.
+function fmtRemote(a) {
+  if (!a) return ''
+  if (a.type === 'string') return String(a.value)
+  if (a.unserializableValue) return String(a.unserializableValue)
+  if ('value' in a) {
+    if (a.value === null || typeof a.value !== 'object') return String(a.value)
+    try { return JSON.stringify(a.value).slice(0, 200) } catch { return a.className || 'object' }
+  }
+  // console.error(someObject) arrives by reference: its description is the bare
+  // class name ("Object", "Array"), so the preview is the only real content —
+  // it has to win, otherwise every logged object reads as a useless "Object".
+  if (a.preview && a.preview.properties?.length) {
+    const props = a.preview.properties.map(p => `${p.name}: ${p.value}`).join(', ')
+    const head = a.subtype === 'array' ? '' : (a.className || a.description || '')
+    return `${head}{${props}${a.preview.overflow ? ', …' : ''}}`.slice(0, 300)
+  }
+  return a.description || a.className || a.type || ''
+}
+
+// PNG IHDR: bytes 16-24 of the file hold width/height, so the real dimensions
+// come from the image itself rather than from what we asked Chrome for.
+function pngSize(b64) {
+  try {
+    const buf = Buffer.from(b64.slice(0, 64), 'base64')
+    if (buf.length < 24 || buf.readUInt32BE(12) !== 0x49484452) return null
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
+  } catch { return null }
 }
 
 function pickHeaders(headers = {}) {
