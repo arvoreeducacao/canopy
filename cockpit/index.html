@@ -621,7 +621,12 @@ function render() {
 
 /* ---------- action log ---------- */
 function actionDetail(d) {
-  return d.tab + (d.label ? ' — ' + d.label : '') + (d.url ? ' — ' + d.url.replace(/^https?:\/\//, '').slice(0, 56) : '')
+  // d.value is the predicate browser_wait runs — it is caller-supplied code, so
+  // showing only "waited" would hide an evaluation behind the tamest verb here.
+  const code = d.expression || d.value
+  return d.tab + (d.label ? ' — ' + d.label : '') +
+    (d.url ? ' — ' + d.url.replace(/^https?:\/\//, '').slice(0, 56) : '') +
+    (code ? ' — ' + String(code).slice(0, 56) : '')
 }
 
 function pushAction(d, animate = true) {
@@ -786,7 +791,7 @@ function rebuildTrack() {
   ).join('')
   $('rlist').innerHTML = acts.map((a, i) => {
     const what = VERB[a.tool] || a.tool
-    const detail = a.label || a.url || a.expression || a.key || (a.ref !== undefined ? 'ref ' + a.ref : '')
+    const detail = a.label || a.url || a.expression || a.value || a.key || (a.ref !== undefined ? 'ref ' + a.ref : '')
     return '<div class="ritem" id="ritem-' + i + '" onclick="jumpAction(' + i + ')">' +
       '<span class="t">' + ((a.ts - t0) / 1000).toFixed(1) + 's</span>' +
       '<span class="tool">' + esc(what) + '</span>' +

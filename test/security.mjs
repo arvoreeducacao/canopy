@@ -269,3 +269,40 @@ test('local mode keeps dev servers reachable but still blocks file:', async () =
   await assert.rejects(local.openTab('file:///etc/passwd'), /not allowed/)
   await assert.rejects(local.openTab('http://localhost:3000/'), /no browser connected/)
 })
+
+test('an unlabelled password field does not leak its value as a name', () => {
+  // nameOf() falls back to el.value, and a password box has no innerText — so
+  // without an early return the password becomes the element's accessible name
+  // and ships in the snapshot, which PRIVACY.md and the Web Store listing both
+  // say never happens. Lift the real function out of the injected source and
+  // run it, rather than pattern-matching the text.
+  const src = readFileSync(new URL('../src/snapshot.js', import.meta.url), 'utf8')
+  const start = src.indexOf('const nameOf = el => {')
+  const end = src.indexOf('let n = 0', start)
+  assert.ok(start > 0 && end > start, 'could not locate nameOf in snapshot.js')
+  const body = src.slice(start, src.lastIndexOf('}', end) + 1).replace('const nameOf = ', '')
+  const nameOf = eval(`(${body})`)
+
+  const field = (over = {}) => ({
+    type: 'password', value: 'SECRET-NO-LABEL', innerText: '', title: '',
+    labels: [], parentElement: null,
+    getAttribute: () => null, querySelector: () => null, ...over
+  })
+  assert.ok(!nameOf(field()).includes('SECRET'), 'the password value must not become the name')
+  // A labelled one still gets a useful name, so the fix does not blind the agent.
+  assert.equal(nameOf(field({ getAttribute: a => (a === 'aria-label' ? 'Senha' : null) })), 'Senha')
+  // And an ordinary text input keeps its value-derived name.
+  assert.equal(nameOf(field({ type: 'text', value: 'jane@example.com' })), 'jane@example.com')
+})
+
+test('browser_wait with until:js respects Stop and Take over', async () => {
+  // until:'js' runs caller-supplied code through eval({silent:true}), which
+  // skips #guard — it must not be a way around the user's kill switch.
+  const c = new Controller(new Recorder(path.join(dataDir, 'sessions')), {})
+  const tab = { id: 't1', stopRequested: true, takenOver: false, steps: 0, transport: {}, ref: {} }
+  c.tabs.set('t1', tab)
+  await assert.rejects(c.waitFor('t1', { until: 'js', value: 'true' }), /STOP|took over/i)
+  tab.stopRequested = false
+  tab.takenOver = true
+  await assert.rejects(c.waitFor('t1', { until: 'js', value: 'true' }), /STOP|took over/i)
+})

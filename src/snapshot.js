@@ -24,6 +24,11 @@ export const SNAPSHOT_JS = `(() => {
     if (ph) return ph
     const alt = el.querySelector && el.querySelector('img[alt]')
     if (alt && alt.alt) return alt.alt
+    // An unlabelled password box has no innerText, so el.value would become its
+    // accessible name and the password would ship in the snapshot — the one
+    // thing we promise never to capture. The value check below is not enough on
+    // its own; the name is a second way out.
+    if (el.type === 'password') return 'password'
     const txt = (el.innerText || el.value || el.title || '').trim()
     if (txt) return txt
     const parentTxt = el.parentElement ? (el.parentElement.innerText || '').trim() : ''

@@ -434,6 +434,10 @@ export class Controller extends EventEmitter {
 
   async waitFor(id, { until = 'js', value, timeoutMs = 15000 } = {}) {
     const tab = this.getTab(id)
+    // until:'js' runs caller-supplied code, so it is an evaluation primitive and
+    // has to respect Stop and Take over like every other one. The built-in
+    // predicates are ours and stay usable while the user holds the tab.
+    if (until === 'js') this.#guard(tab)
     const deadline = Date.now() + Math.min(timeoutMs, 60000)
     const checks = {
       load: `document.readyState === 'complete' && location.href !== 'about:blank'`,
