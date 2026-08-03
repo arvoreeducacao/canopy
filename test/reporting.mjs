@@ -21,9 +21,9 @@ import { formatSnapshot, formatProblems } from '../src/snapshot.js'
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'canopy-report-'))
 after(() => rmSync(dataDir, { recursive: true, force: true }))
 
-function harness() {
+function harness({ kind = 'port', refKey } = {}) {
   const transport = new EventEmitter()
-  transport.kind = 'port'
+  transport.kind = kind
   transport.ready = true
   transport.sent = []
   transport.send = async (ref, method, params) => {
@@ -31,6 +31,7 @@ function harness() {
     return {}
   }
   transport.matches = () => true
+  transport.refKey = refKey || (ref => JSON.stringify(ref))
   const c = new Controller(new Recorder(path.join(dataDir, 'sessions')))
   c.addTransport(transport)
   const tab = {
@@ -236,4 +237,24 @@ test('an action that changes nothing says so', async () => {
   }
   const opened = await c.act('t1', { action: 'click', ref: 1 })
   assert.match(opened.after, /interactive elements 3 -> 5/)
+})
+
+// A tab the user closed by hand has to be dropped whatever the transport calls
+// its tabs — the extension names them with numeric tab ids, BiDi with browsing
+// context strings, and a controller that only understood one would keep the
+// other's closed tabs forever.
+test('a tab closed by hand is dropped, whichever transport reported it', () => {
+  const ext = harness({ kind: 'extension', refKey: ref => `ext:${ref.extTabId}` })
+  ext.tab.ref = { extTabId: 42 }
+  ext.transport.emit('tab.removed', { tabId: 99 })
+  assert.equal(ext.c.tabs.size, 1, 'a different tab id must not drop ours')
+  ext.transport.emit('tab.removed', { tabId: 42 })
+  assert.equal(ext.c.tabs.size, 0)
+
+  const bidi = harness({ kind: 'bidi', refKey: ref => `bidi:${ref.context}` })
+  bidi.tab.ref = { context: 'ctx-1' }
+  bidi.transport.emit('tab.removed', { ref: { context: 'ctx-2' } })
+  assert.equal(bidi.c.tabs.size, 1)
+  bidi.transport.emit('tab.removed', { ref: { context: 'ctx-1' } })
+  assert.equal(bidi.c.tabs.size, 0)
 })

@@ -32,6 +32,11 @@ export class PortTransport extends EventEmitter {
     return this
   }
 
+  disconnect() {
+    this.ready = false
+    try { this.ws?.close() } catch {}
+  }
+
   #onMessage(msg) {
     if (msg.id !== undefined) {
       const p = this.pending.get(msg.id)

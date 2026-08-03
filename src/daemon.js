@@ -3,19 +3,25 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { Controller } from './core.js'
 import { Recorder } from './recorder.js'
 import { PortTransport } from './cdp/port-transport.js'
 import { ExtensionTransport } from './cdp/extension-transport.js'
+import { BidiTransport } from './cdp/bidi-transport.js'
+import { findBrowser } from './launch.js'
 import { restHandler } from './rest.js'
 import { mcpHandler } from './mcp.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost = '', ssoHost = '', ssoHeader = 'x-auth-request-email', ssoSecret = '', extId = '', mcpOrigin = '', cdpUrl = 'http://127.0.0.1:9222', dataDir } = {}) {
+const urlPort = (url, fallback) => {
+  try { return new URL(url).port || fallback } catch { return fallback }
+}
+
+export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost = '', ssoHost = '', ssoHeader = 'x-auth-request-email', ssoSecret = '', extId = '', mcpOrigin = '', cdpUrl = 'http://127.0.0.1:9222', bidiUrl = 'ws://127.0.0.1:9223/session', dataDir } = {}) {
   // Cloud mode: bound beyond loopback, every route and socket is token-gated
   // (only the cockpit shell stays open — it holds no data without the token).
   const isPublic = !/^(127\.0\.0\.1|localhost|::1)$/.test(bind)
@@ -138,15 +144,51 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   setInterval(tryPort, 3000).unref()
   portTransport.on('disconnected', () => console.log('[canopy] CDP (port) disconnected'))
 
+  // BiDi transport: Firefox and its forks (Zen, LibreWolf, Floorp) speak
+  // WebDriver BiDi on --remote-debugging-port, never CDP. Same background
+  // retry as the port transport, with one difference — Gecko refuses a second
+  // session and cannot hand back the first, so the one error worth spelling
+  // out is spelled out, once.
+  const bidiTransport = new BidiTransport(bidiUrl)
+  controller.addTransport(bidiTransport)
+  let bidiBusyLogged = false
+  const tryBidi = async () => {
+    if (bidiTransport.ready) return
+    try {
+      await bidiTransport.connect()
+      bidiBusyLogged = false
+      console.log(`[canopy] BiDi connected: ${bidiTransport.browserInfo} (${bidiUrl})`)
+      const targets = await bidiTransport.listTargets().catch(() => [])
+      for (const t of targets) {
+        if (/^AI · /.test(t.title || '')) await bidiTransport.closeTab({ context: t.targetId }).catch(() => {})
+      }
+    } catch (err) {
+      if (/Maximum number of active sessions/.test(err.message) && !bidiBusyLogged) {
+        bidiBusyLogged = true
+        console.log('[canopy] a WebDriver session is already open in that browser and Gecko allows only one —')
+        console.log('[canopy] restart the browser (or close the other client) to let Canopy attach')
+      }
+    }
+  }
+  await tryBidi()
+  const bidiRetry = setInterval(tryBidi, 3000)
+  bidiRetry.unref()
+  bidiTransport.on('disconnected', () => console.log('[canopy] BiDi disconnected'))
+
   // Browser closed? openTab asks us to launch one in the background and waits
-  // for a transport (extension hello or CDP port) to come up.
+  // for a transport (extension hello, CDP port or BiDi) to come up.
   controller.requestBrowser = async () => {
-    if (process.platform !== 'darwin') return null
-    const app = ['/Applications/Arc.app', '/Applications/Google Chrome.app', '/Applications/Chromium.app']
-      .find(a => existsSync(a))
-    if (!app) return null
-    console.log(`[canopy] no browser connected — launching ${path.basename(app, '.app')} in the background`)
-    spawn('open', ['-g', '-a', app], { detached: true, stdio: 'ignore' }).unref()
+    const found = findBrowser()
+    if (!found) return null
+    console.log(`[canopy] no browser connected — launching ${found.name} in the background`)
+    // A Chromium browser is reached through the extension, which dials in on
+    // its own; branded Chrome 136+ ignores --remote-debugging-port on a real
+    // profile anyway. Gecko has no extension path, so the port is the only way
+    // in and has to be on the command line.
+    const extra = found.engine === 'gecko'
+      ? [`--remote-debugging-port=${urlPort(bidiUrl, 9223)}`]
+      : []
+    spawn(found.command, [...found.args, ...extra], { detached: true, stdio: 'ignore' }).unref()
     const deadline = Date.now() + 30000
     while (Date.now() < deadline) {
       const t = controller.transport()
@@ -327,6 +369,33 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
     server.listen(port, bind, resolve)
   })
 
+  // Shutting down means letting go of the browser, not just the listener. A
+  // Gecko session that outlives the daemon leaves the browser undriveable
+  // until it is restarted (it allows exactly one and will not hand it back),
+  // and a live socket to any browser keeps the process alive after its port
+  // has closed.
+  let closing = null
+  const close = () => {
+    if (closing) return closing
+    clearInterval(bidiRetry)
+    closing = Promise.resolve(bidiTransport.end())
+      .catch(() => {})
+      .then(() => {
+        portTransport.disconnect()
+        wssExt.close()
+        wssCockpit.close()
+        for (const c of [...wssExt.clients, ...wssCockpit.clients]) c.terminate()
+        // server.close() alone waits for idle keep-alive connections to time
+        // out on their own, which a caller shutting down does not want to wait for.
+        server.closeAllConnections?.()
+        return new Promise(resolve => server.close(resolve))
+      })
+    return closing
+  }
+  const bye = () => { close().finally(() => process.exit(0)) }
+  process.once('SIGINT', bye)
+  process.once('SIGTERM', bye)
+
   const shownHost = publicHosts[0] || (isPublic ? bind : '127.0.0.1')
   const origin = publicHosts[0] ? `https://${publicHosts[0]}` : `http://${shownHost}:${port}`
   console.log(`[canopy] bind     ${bind}:${port}${isPublic ? ' (public — everything requires the token)' : ''}`)
@@ -348,5 +417,5 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   if (ssoHost && !ssoSecret) {
     console.log('[canopy] warning  CANOPY_SSO_HOST without CANOPY_SSO_SECRET — SSO is off; use the token')
   }
-  return { server, controller, recorder, token, extSecret }
+  return { server, controller, recorder, token, extSecret, close }
 }

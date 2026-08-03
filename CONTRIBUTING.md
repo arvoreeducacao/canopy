@@ -6,7 +6,8 @@ Thanks for looking. Canopy is early and small, so contributions land quickly.
 
 ```bash
 pnpm install
-node bin/canopy.js --launch-chrome     # daemon + Chrome for Testing with the extension loaded
+node bin/canopy.js --launch-chrome      # daemon + Chrome for Testing with the extension loaded
+node bin/canopy.js --launch-firefox     # daemon + Zen/Firefox over WebDriver BiDi
 ```
 
 Install the test browser once with:
@@ -33,7 +34,17 @@ node test/mcp-key.mjs         # keyboard dispatch
 node test/mcp-cross.mjs       # both transports
 ```
 
-A real test suite is very welcome; there isn't one yet.
+`test/bidi-live.mjs` is the exception: it needs a Gecko browser and nothing else — it serves its
+own page, drives the controller through WebDriver BiDi and prints a pass/fail line per behaviour.
+Run it after touching `src/cdp/bidi-transport.js`.
+
+```bash
+node bin/canopy.js --launch-firefox
+node test/bidi-live.mjs
+```
+
+`pnpm test` is the part that runs without a browser: `test/security.mjs`, `test/reporting.mjs` and
+`test/bidi.mjs` (the CDP→BiDi translation, against a fake socket). More coverage is very welcome.
 
 ## Where help is most useful
 
@@ -41,11 +52,13 @@ Roughly in order:
 
 1. **Hardening the daemon** — auth token, `Origin`/`Host` validation, dropping the CORS wildcard.
    See the known issues in [SECURITY.md](SECURITY.md). This is the release blocker.
-2. **Windows and Linux support** in `bin/canopy.js` — the daemon is portable, the launcher is not
-   (it shells out to macOS `open -g` and hardcodes macOS Chrome paths).
+2. **Windows support** in `src/launch.js` — macOS and Linux (binaries and Flatpaks) are exercised,
+   the Windows paths are written but have never been run.
 3. **Arc end-to-end** — the extension connects and drives tabs, but the long tail is unverified.
    Tab grouping in particular returns `-1`.
-4. **A test suite** worth the name.
+4. **Gecko's thin spots** — no screencast (every tab uses the polled feed), no response bodies, and
+   `browsingContext.locateNodes` may be a better basis for refs than the current DOM walk.
+5. **A test suite** worth the name.
 
 ## House style
 

@@ -74,9 +74,42 @@ function setup() {
     console.log(`[setup] could not install the skill: ${e.message}`)
   }
 
+  if (flag('--systemd')) {
+    if (process.platform !== 'linux') {
+      console.log('[setup] --systemd is Linux-only, skipped (macOS: --launchd)')
+    } else {
+      const bin = fileURLToPath(import.meta.url)
+      const unitPath = path.join(home, '.config', 'systemd', 'user', 'canopy.service')
+      const unit = `[Unit]
+Description=Canopy daemon (MCP + CDP bridge)
+After=graphical-session.target
+
+[Service]
+ExecStart=${process.execPath} ${bin} --port ${port}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+`
+      fs.mkdirSync(path.dirname(unitPath), { recursive: true })
+      fs.writeFileSync(unitPath, unit)
+      try {
+        execSync('systemctl --user daemon-reload', { stdio: 'ignore' })
+        execSync('systemctl --user enable --now canopy.service', { stdio: 'ignore' })
+        console.log(`[setup] systemd user unit installed (${unitPath}) — the daemon now starts at login`)
+        console.log(`[setup] note: it points at this install (${bin}); re-run setup --systemd after moving or updating it`)
+        console.log('[setup] logs: journalctl --user -u canopy -f')
+      } catch (e) {
+        console.log(`[setup] wrote ${unitPath} but could not enable it: ${e.message}`)
+        console.log('[setup] enable it yourself: systemctl --user enable --now canopy.service')
+      }
+    }
+  }
+
   if (flag('--launchd')) {
     if (process.platform !== 'darwin') {
-      console.log('[setup] --launchd is macOS-only, skipped')
+      console.log(`[setup] --launchd is macOS-only, skipped${process.platform === 'linux' ? ' (use --systemd here)' : ''}`)
     } else {
       const bin = fileURLToPath(import.meta.url)
       const plistPath = path.join(home, 'Library', 'LaunchAgents', 'com.arvore.canopy.plist')
@@ -109,18 +142,27 @@ function setup() {
   }
 
   console.log(`
-next steps:
-  1. start the daemon (skip if you used --launchd):  canopy
+next steps — Chromium (Arc, Chrome, Brave, Edge):
+  1. start the daemon (skip if you used --launchd/--systemd):  canopy
   2. load the extension: arc://extensions (or chrome://extensions) → Developer mode → Load unpacked → ${path.join(__dirname, '..', 'extension')}
   3. pair it: the extension's Details → Extension options → paste  ${pairing.value}
-  4. cockpit: http://127.0.0.1:${port}/`)
+  4. cockpit: http://127.0.0.1:${port}/
+
+next steps — Firefox family (Zen, Firefox, LibreWolf, Floorp):
+  1. quit the browser if it is running (the remote agent only starts at launch)
+  2. canopy --launch-firefox --real-profile
+  3. cockpit: http://127.0.0.1:${port}/`)
 }
 
 async function cli(cmd, rest) {
   if (cmd === 'help') {
     console.log(`canopy                       start the daemon
-canopy --launch-chrome       start the daemon and open a test browser
+canopy --launch-chrome       start the daemon and open a Chromium test browser
+canopy --launch-firefox      start the daemon and open Zen/Firefox (BiDi)
+    --real-profile           ...on your own profile, with your logins
+    --browser <path>         ...on a specific binary
 canopy setup [--launchd]     one-shot install: token, Claude Code MCP + skill
+             [--systemd]     ...and start at login (Linux)
 canopy pair                  print the extension pairing code
 canopy status                daemon/browser state
 canopy open <url> [--label]  open an agent tab
@@ -203,9 +245,11 @@ canopy screenshot <tab> [f]  save a PNG screenshot of the tab`)
 
 // ---------------- daemon mode ----------------
 const { startDaemon } = await import('../src/daemon.js')
+const { findChromeForTesting, findChromium, findGecko, describeBrowser, geckoArgs, withFilesystem } = await import('../src/launch.js')
 
 const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
 const cdpPort = Number(opt('--cdp-port', process.env.CANOPY_CDP_PORT || 9222))
+const bidiPort = Number(opt('--bidi-port', process.env.CANOPY_BIDI_PORT || 9223))
 const bind = opt('--bind', process.env.CANOPY_BIND || '127.0.0.1')
 const publicHost = opt('--public-host', process.env.CANOPY_PUBLIC_HOST || '')
 const ssoHost = opt('--sso-host', process.env.CANOPY_SSO_HOST || '')
@@ -215,80 +259,75 @@ const extId = opt('--ext-id', process.env.CANOPY_EXT_ID || '')
 const mcpOrigin = opt('--mcp-origin', process.env.CANOPY_MCP_ORIGIN || '')
 const dataDir = opt('--data-dir', process.env.CANOPY_DATA_DIR || '') || undefined
 
-// Branded Chrome 137+ ignores --load-extension; Chrome for Testing still honors
-// it, so the dev browser gets the extension (tab grouping, focus-pause).
-// Install once with: pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers
-function findChromeForTesting() {
-  const base = path.join(os.homedir(), '.canopy', 'browsers', 'chrome')
-  const inner = {
-    darwin: p => path.join(p, `chrome-mac-${os.arch() === 'arm64' ? 'arm64' : 'x64'}`, 'Google Chrome for Testing.app'),
-    linux: p => path.join(p, 'chrome-linux64', 'chrome'),
-    win32: p => path.join(p, 'chrome-win64', 'chrome.exe')
-  }[process.platform]
-  if (!inner) return null
-  try {
-    for (const dir of fs.readdirSync(base).sort().reverse()) {
-      const bin = inner(path.join(base, dir))
-      if (fs.existsSync(bin)) return bin
-    }
-  } catch {}
-  return null
-}
+await startDaemon({
+  port, bind, publicHost, ssoHost, ssoHeader, ssoSecret, extId, mcpOrigin, dataDir,
+  cdpUrl: process.env.CANOPY_CDP_URL || `http://127.0.0.1:${cdpPort}`,
+  bidiUrl: process.env.CANOPY_BIDI_URL || `ws://127.0.0.1:${bidiPort}/session`
+})
 
-function findSystemChrome() {
-  if (process.platform === 'darwin') {
-    return ['/Applications/Google Chrome.app', '/Applications/Chromium.app'].find(p => fs.existsSync(p)) || 'Google Chrome'
-  }
-  if (process.platform === 'linux') {
-    for (const bin of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-      try { return execSync(`command -v ${bin}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() } catch {}
-    }
-    return null
-  }
-  if (process.platform === 'win32') {
-    const candidates = [
-      path.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-      path.join(process.env['LOCALAPPDATA'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
-    ]
-    return candidates.find(p => p && fs.existsSync(p)) || null
-  }
-  return null
+const spawnDetached = (found, browserArgs) => {
+  const child = spawn(found.command, [...found.args, ...browserArgs], { detached: true, stdio: 'ignore' })
+  child.unref()
+  return child
 }
-
-await startDaemon({ port, bind, publicHost, ssoHost, ssoHeader, ssoSecret, extId, mcpOrigin, dataDir, cdpUrl: process.env.CANOPY_CDP_URL || `http://127.0.0.1:${cdpPort}` })
 
 if (flag('--launch-chrome')) {
+  // Branded Chrome 137+ ignores --load-extension; Chrome for Testing still
+  // honours it, so only that build gets the extension (tab grouping,
+  // focus-pause). Install it once with:
+  //   pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers
   const cft = findChromeForTesting()
-  const target = opt('--browser', cft || findSystemChrome())
+  const override = opt('--browser', null)
+  const found = override ? describeBrowser(override, 'chromium') : cft || findChromium()
   const profile = opt('--profile', path.join(os.homedir(), '.canopy', 'chrome-profile'))
   const extDir = path.join(__dirname, '..', 'extension')
-  const chromeArgs = [
-    `--user-data-dir=${profile}`,
-    `--remote-debugging-port=${cdpPort}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-session-crashed-bubble',
-    '--hide-crash-restore-bubble',
-    `--load-extension=${extDir}`,
-    `http://127.0.0.1:${port}/`
-  ]
-  if (!target) {
-    console.log('[canopy] no Chrome found — install Chrome for Testing:')
+  if (!found) {
+    console.log('[canopy] no Chromium browser found — install Chrome for Testing:')
     console.log('           pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers')
   } else {
-    // macOS .app bundles launch via `open -g` (background, no focus steal);
-    // raw binaries (mac CfT bin, Linux, Windows) spawn directly.
-    const child = target.endsWith('.app') || target === 'Google Chrome'
-      ? spawn('open', ['-g', '-n', '-a', target, '--args', ...chromeArgs], { detached: true, stdio: 'ignore' })
-      : spawn(target, chromeArgs, { detached: true, stdio: 'ignore' })
-    child.unref()
-    console.log(`[canopy] browser launched in the background: ${path.basename(target)} (profile ${profile}, CDP ${cdpPort})`)
-    if (!cft && !opt('--browser', null)) {
+    spawnDetached(withFilesystem(found, path.dirname(profile)), [
+      `--user-data-dir=${profile}`,
+      `--remote-debugging-port=${cdpPort}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-session-crashed-bubble',
+      '--hide-crash-restore-bubble',
+      `--load-extension=${extDir}`,
+      `http://127.0.0.1:${port}/`
+    ])
+    console.log(`[canopy] browser launched in the background: ${found.name} (profile ${profile}, CDP ${cdpPort})`)
+    if (!cft && !override) {
       console.log('[canopy] tip: install Chrome for Testing so the extension loads in the test browser:')
       console.log('           pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers')
     }
   }
 }
 
-console.log('[canopy] ready. For Arc: load the extension/ folder at arc://extensions (developer mode).')
+// Firefox and its forks. There is no extension path here — Gecko has no
+// chrome.debugger — so the remote-debugging port is the whole bridge, and it
+// only exists if the browser was started with it. That is also why a browser
+// already running on the same profile has to be quit first: Gecko hands the
+// arguments to the running copy and exits, and the port never opens.
+if (flag('--launch-firefox') || flag('--launch-zen') || flag('--launch-gecko')) {
+  const override = opt('--browser', null)
+  const found = override ? describeBrowser(override, 'gecko') : findGecko()
+  // The default is a throwaway profile, like --launch-chrome. --real-profile
+  // is the opposite trade and the reason Canopy exists: your own profile, your
+  // own logins, the tabs opening next to the ones you are working in.
+  const realProfile = flag('--real-profile')
+  const profile = realProfile ? null : opt('--profile', path.join(os.homedir(), '.canopy', 'firefox-profile'))
+  if (!found) {
+    console.log('[canopy] no Firefox-family browser found (looked for zen, firefox, librewolf, floorp — binary and Flatpak)')
+    console.log('[canopy] point at one with: --launch-firefox --browser /path/to/zen')
+  } else {
+    if (profile) fs.mkdirSync(profile, { recursive: true })
+    spawnDetached(withFilesystem(found, profile && path.dirname(profile)), [
+      ...geckoArgs({ bidiPort, profile }),
+      `http://127.0.0.1:${port}/`
+    ])
+    console.log(`[canopy] browser launched: ${found.name} (${profile ? `profile ${profile}` : 'your default profile'}, BiDi ${bidiPort})`)
+    if (realProfile) console.log('[canopy] note: quit any other window of it first, or the remote agent never starts')
+  }
+}
+
+console.log('[canopy] ready. Chromium: load extension/ at chrome://extensions (developer mode). Firefox/Zen: canopy --launch-firefox.')
