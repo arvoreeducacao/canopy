@@ -105,6 +105,16 @@ sensitive work.
 other inputs. A one-time code typed into a plain text field lands in the snapshot and the action
 log under `~/.canopy/sessions/`.
 
+### A Gecko debugging port is unauthenticated
+
+Firefox and its forks reach the daemon over `--remote-debugging-port`, which — unlike the
+extension bridge, with its pairing secret — has no authentication of its own. It binds to loopback
+and Gecko rejects any request whose `Host` is not localhost, so a web page cannot reach it; any
+local process can. That is the same boundary as `--remote-debugging-port` on Chrome, and the same
+one described below: it holds against pages, not against code running as you. Canopy subscribes to
+BiDi events per browsing context rather than browser-wide, so the tabs it did not open are never
+streamed through the daemon — but a process that speaks to the port directly is not bound by that.
+
 ### Same-user local processes
 
 The token file is `0600`, but any process running as you can read it, and the cockpit shell hands

@@ -52,7 +52,7 @@ export class Controller extends EventEmitter {
     t.on('cdpEvent', evt => this.#onCdpEvent(t, evt))
     // Note: focusing an agent tab does NOT auto-take-over — the input guard
     // makes watching safe; control changes hands only via the pill/cockpit.
-    t.on('tab.removed', msg => this.#onExtTabRemoved(msg.tabId))
+    t.on('tab.removed', msg => this.#onTabRemoved(t, msg))
     // Orphan sweep: agent tabs left behind by a dead daemon get closed on
     // reconnect — an agent tab without a controlling session is just litter.
     t.on('orphans', async extTabIds => {
@@ -153,7 +153,7 @@ export class Controller extends EventEmitter {
     // No browser? Try to launch one (hook set by the daemon) and wait for a
     // transport to dial in — the agent can start from a fully closed browser.
     if (!t && this.requestBrowser) t = await this.requestBrowser().catch(() => null)
-    if (!t) throw new Error('no browser connected — launch Chrome with --remote-debugging-port or connect the Canopy extension')
+    if (!t) throw new Error('no browser connected — connect the Canopy extension, or launch Chrome or Firefox/Zen with --remote-debugging-port')
     const s = this.#resolveSession(session)
     // Open on about:blank first so Network/Runtime/Emulation are enabled
     // BEFORE the real navigation — otherwise the page's initial API calls
@@ -484,11 +484,28 @@ export class Controller extends EventEmitter {
     }
 
     if (action === 'scroll') {
+      const top = Number(dy) || 400
+      const left = Number(dx) || 0
       await this.#cursor(tab, 'show', [labelJs])
-      await this.eval(tab.id, `window.scrollBy({ top: ${Number(dy) || 400}, left: ${Number(dx) || 0}, behavior: 'smooth' })`, { silent: true, awaitPromise: false })
+      const where = () => this.eval(tab.id, 'JSON.stringify([scrollX, scrollY])', { silent: true })
+      const from = await where()
+      await this.eval(tab.id, `window.scrollBy({ top: ${top}, left: ${left}, behavior: 'smooth' })`, { silent: true, awaitPromise: false })
       await sleep(450)
-      this.#log(tab, 'scroll', { dy: Number(dy) || 400, label })
-      return { scrolled: true }
+      let to = await where()
+      if (to === from) {
+        // A smooth scroll is animated frame by frame, and a hidden tab is not
+        // given frames — in a background tab it is simply dropped. Every agent
+        // tab is a background tab, so this is the normal path, not the edge
+        // case: repeat it instantly rather than report a scroll that never
+        // moved the page.
+        await this.eval(tab.id, `window.scrollBy({ top: ${top}, left: ${left}, behavior: 'auto' })`, { silent: true, awaitPromise: false })
+        to = await where()
+      }
+      const [x, y] = JSON.parse(to)
+      this.#log(tab, 'scroll', { dy: top, label })
+      return to === from
+        ? { scrolled: false, at: [x, y], after: 'NO CHANGE DETECTED — the page did not scroll (already at the end, or the scroll happens inside an element rather than the window)' }
+        : { scrolled: true, at: [x, y] }
     }
 
     throw new Error(`unknown action "${action}" — use click | fill | press | scroll`)
@@ -562,7 +579,7 @@ export class Controller extends EventEmitter {
         ;({ data } = await send('Page.captureScreenshot', { format: 'png' }))
       }
     }
-    if (!data) throw new Error('Chrome returned an empty screenshot — the tab may be mid-navigation; retry or call browser_wait first')
+    if (!data) throw new Error('the browser returned an empty screenshot — the tab may be mid-navigation; retry or call browser_wait first')
     const size = pngSize(data)
     const viewport = params.clip ? [params.clip.width, params.clip.height] : (box ? [Math.round(box.clientWidth || box.width), Math.round(box.clientHeight || box.height)] : null)
     this.#log(tab, 'screenshot', { fullPage, size: size ? `${size.width}x${size.height}` : undefined })
@@ -788,8 +805,12 @@ export class Controller extends EventEmitter {
     return { request: meta, responseBody: body }
   }
 
-  #onExtTabRemoved(extTabId) {
-    const tab = [...this.tabs.values()].find(t => t.ref.extTabId === extTabId)
+  // The user closed an agent tab by hand. Every transport names its tabs
+  // differently (extension tab ids, BiDi contexts), so the transport's own
+  // refKey is what decides which one went away.
+  #onTabRemoved(transport, msg) {
+    const key = transport.refKey(msg.ref || { extTabId: msg.tabId })
+    const tab = [...this.tabs.values()].find(t => t.transport === transport && transport.refKey(t.ref) === key)
     if (tab) this.#dropTab(tab, 'closed by user')
   }
 

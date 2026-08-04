@@ -22,15 +22,17 @@ import { Controller } from '../src/core.js'
 import { Recorder } from '../src/recorder.js'
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'canopy-test-'))
-const { server } = await startDaemon({ port: 0, bind: '127.0.0.1', dataDir })
+const { server, close } = await startDaemon({ port: 0, bind: '127.0.0.1', dataDir })
 const PORT = server.address().port
 const BASE = `http://127.0.0.1:${PORT}`
 const SELF_ORIGIN = `http://127.0.0.1:${PORT}`
 const token = readFileSync(path.join(dataDir, 'token'), 'utf8').trim()
 const extSecret = readFileSync(path.join(dataDir, 'ext-secret'), 'utf8').trim()
 
-after(() => {
-  server.close()
+// close() rather than server.close(): a browser socket the daemon still holds
+// would keep this process alive long after the last assertion.
+after(async () => {
+  await close()
   rmSync(dataDir, { recursive: true, force: true })
 })
 

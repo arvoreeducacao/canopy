@@ -45,7 +45,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/security.mjs test/reporting.mjs",
+    "test": "node --test test/security.mjs test/reporting.mjs test/bidi.mjs",
     "start": "node bin/canopy.js",
     "chrome": "node bin/canopy.js --launch-chrome",
     "build:extension": "./scripts/build-extension.sh"

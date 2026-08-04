@@ -1,13 +1,13 @@
 ---
 name: canopy
-description: Drive the user's real browser (Arc/Chrome) through the Canopy daemon — open tabs in parallel that never steal focus, act with a visible AI cursor the user can watch in a live cockpit, mine the page's API calls to build cheap automations, and replay every session. Use whenever a task involves a website, the user's logged-in sessions, form filling, scraping, or testing a web app. Triggers: "open it in the browser", "use my login", "fill in the form", "grab the data from that site", "automate this", any browser task.
+description: Drive the user's real browser (Arc, Chrome, Firefox, Zen) through the Canopy daemon — open tabs in parallel that never steal focus, act with a visible AI cursor the user can watch in a live cockpit, mine the page's API calls to build cheap automations, and replay every session. Use whenever a task involves a website, the user's logged-in sessions, form filling, scraping, or testing a web app. Triggers: "open it in the browser", "use my login", "fill in the form", "grab the data from that site", "automate this", any browser task.
 metadata:
   version: "0.1.0"
 ---
 
 # canopy
 
-MCP server `canopy` at `http://127.0.0.1:4664/mcp` (add once: `claude mcp add --transport http canopy http://127.0.0.1:4664/mcp`). If `browser_status` fails the daemon is not running: start it with `canopy --launch-chrome &`, or `node <path-to-canopy>/bin/canopy.js --launch-chrome &` if it is not linked globally — ask the user where the repo lives rather than guessing. The user can watch everything at `http://127.0.0.1:4664/`.
+MCP server `canopy` at `http://127.0.0.1:4664/mcp` (add once: `claude mcp add --transport http canopy http://127.0.0.1:4664/mcp`). If `browser_status` fails the daemon is not running: start it with `canopy --launch-chrome &` (or `canopy --launch-firefox &` for Zen/Firefox), or `node <path-to-canopy>/bin/canopy.js --launch-chrome &` if it is not linked globally — ask the user where the repo lives rather than guessing. The user can watch everything at `http://127.0.0.1:4664/`.
 
 ## Golden rules
 
@@ -43,7 +43,7 @@ UI clicking costs tokens. Two patterns that are 10x cheaper:
 **API mining** — the page already talks to an API with the user's cookies. Perform the UI action ONCE (or just load the page), then:
 
 1. `browser_requests {tab, filter: "api"}` → see what XHR/Fetch calls the page made
-2. `browser_request_body {tab, request}` → learn the response shape
+2. `browser_request_body {tab, request}` → learn the response shape (unavailable on Firefox/Zen: WebDriver BiDi does not expose response bodies, so skip to step 3)
 3. Replay directly: `browser_eval` with `fetch(url, {credentials: 'include', ...})` — same session, no clicks, no snapshots
 
 Prefer this for anything repetitive (pagination, bulk actions, polling).

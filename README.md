@@ -6,10 +6,10 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-3C873A.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-streamable%20http-6366F1.svg)](https://modelcontextprotocol.io)
 
-Canopy is a local daemon (MCP + CDP) plus a browser extension. Agents like Claude Code, Codex
-and Cursor open their own tabs in your real browser — with your logins — while you keep working
-in yours. Every action shows a visible AI cursor on the page, streams to a live cockpit, and is
-recorded frame by frame so you can replay it later.
+Canopy is a local daemon (MCP, speaking CDP or WebDriver BiDi) plus a browser extension. Agents
+like Claude Code, Codex and Cursor open their own tabs in your real browser — with your logins —
+while you keep working in yours. Every action shows a visible AI cursor on the page, streams to a
+live cockpit, and is recorded frame by frame so you can replay it later.
 
 ![The Canopy cockpit: four agent tabs streaming live, with the action log on the right](docs/cockpit.png)
 
@@ -34,13 +34,17 @@ Three properties it is built around:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/compare-dark.png">
-  <img alt="Capability matrix comparing Canopy with ego lite, Claude in Chrome, BrowserOS, Browser MCP and mcp-chrome, Playwright and Chrome DevTools MCP, and Browserbase and Steel. Canopy is the only one that runs inside Arc, guards human input on driven tabs, ships a live cockpit and stores replays locally; it is behind on stable refs, shadow DOM reach and Windows/Linux support." src="docs/compare-light.png" width="100%">
+  <img alt="Capability matrix comparing Canopy with ego lite, Claude in Chrome, BrowserOS, Browser MCP and mcp-chrome, Playwright and Chrome DevTools MCP, and Browserbase and Steel. Canopy is the only one that runs inside Arc, guards human input on driven tabs, ships a live cockpit and stores replays locally; it is behind on stable refs and shadow DOM reach." src="docs/compare-light.png" width="100%">
 </picture>
 
 The row nobody else fills is **your real browser, no CDP port**. Because the extension goes through
 `chrome.debugger` instead of `--remote-debugging-port`, Canopy runs inside Arc — where
 [Claude in Chrome](https://code.claude.com/docs/en/chrome) (Chrome only), Playwright MCP and
-Chrome DevTools MCP do not go.
+Chrome DevTools MCP do not go. The same goes the other way for the Firefox family: Canopy drives
+Zen and Firefox over WebDriver BiDi, which the CDP-based tools cannot reach at all.
+
+(The matrix image still shows Linux as a gap; it predates the Linux and Gecko support described
+below and is due a redraw.)
 
 The closest project in spirit is [ego lite](https://github.com/citrolabs/ego-lite), which reaches the
 same two-lane conclusion from the other end: it ships its own browser and asks you to migrate into it,
@@ -70,17 +74,17 @@ Checked August 2026. Corrections welcome — open an issue if a row is wrong or 
 
 ## Quick start
 
-Requires Node ≥ 20. The daemon itself is portable; the `--launch-chrome` helper in Option A is
-macOS-only for now (see [Limitations](#limitations)).
+Requires Node ≥ 20. macOS and Linux are both exercised; Windows paths exist but are untested
+(see [Limitations](#limitations)).
 
 ```bash
 npx @arvoretech/canopy setup   # mints the token, registers the MCP server in Claude Code, installs the skill
 npx @arvoretech/canopy         # starts the daemon
 ```
 
-`setup` is idempotent; add `--launchd` (macOS) to also start the daemon at login. If you don't
-use Claude Code, `setup` prints the equivalent `claude mcp add` command so you can adapt it to
-your agent — the MCP endpoint is `http://127.0.0.1:4664/mcp` with
+`setup` is idempotent; add `--launchd` (macOS) or `--systemd` (Linux) to also start the daemon at
+login. If you don't use Claude Code, `setup` prints the equivalent `claude mcp add` command so you
+can adapt it to your agent — the MCP endpoint is `http://127.0.0.1:4664/mcp` with
 `Authorization: Bearer $(cat ~/.canopy/token)`. (Or from a clone: `pnpm install && node bin/canopy.js`.)
 
 The daemon mints a token at `~/.canopy/token` on first run and requires it on every route and
@@ -93,12 +97,13 @@ which is what stops another local process from taking the bridge and, with it, t
 every tab in your browser.
 
 If the browser is closed when an agent asks for a tab, the daemon launches it in the background
-(Arc or Chrome, macOS) and waits for the bridge to come up — no manual step.
+and waits for the bridge to come up — no manual step. It looks for a Chromium browser first (Arc,
+Chrome, Chromium, Brave, Edge — binaries, macOS bundles and Flatpaks), then for a Gecko one.
 
 The same binary is also a small CLI against a running daemon:
 
 ```bash
-canopy setup                 # one-shot install: token, Claude Code MCP + skill (--launchd: start at login)
+canopy setup                 # one-shot install: token, Claude Code MCP + skill (--launchd/--systemd: start at login)
 canopy pair                  # print the code that pairs the browser extension
 canopy status                # connected browser + open agent tabs
 canopy open https://example.com --label "checking something"
@@ -107,8 +112,8 @@ canopy screenshot t1 out.png
 canopy close t1
 ```
 
-The daemon reaches a browser two ways and accepts both at once. When the extension is connected it
-wins, because only that path can group tabs and work without a CDP port.
+The daemon reaches a browser three ways and accepts all of them at once. When the extension is
+connected it wins, because only that path can group tabs and work without a debugging port.
 
 ### Option A — a dedicated test browser
 
@@ -119,11 +124,11 @@ pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.canopy/browsers   #
 node bin/canopy.js --launch-chrome
 ```
 
-This launches in the background (`open -g`, so it does not steal focus) with the extension loaded
-and a separate profile under `~/.canopy/chrome-profile`. Best for trying Canopy out without
+This launches in the background (`open -g` on macOS, so it does not steal focus) with the extension
+loaded and a separate profile under `~/.canopy/chrome-profile`. Best for trying Canopy out without
 pointing it at your logged-in session.
 
-### Option B — your real browser (Arc, Chrome)
+### Option B — your real Chromium browser (Arc, Chrome, Brave, Edge)
 
 1. Go to `arc://extensions` (or `chrome://extensions`) → enable **Developer mode** → **Load unpacked** → pick `extension/`
    (a Chrome Web Store listing is in review — see [docs/chrome-web-store.md](docs/chrome-web-store.md))
@@ -133,6 +138,34 @@ pointing it at your logged-in session.
 
 The extension path is the interesting one: because it uses `chrome.debugger` rather than a CDP
 port, it works in browsers that never expose one — which is how Canopy runs inside Arc.
+
+### Option C — Firefox, Zen, LibreWolf, Floorp
+
+Gecko has no `chrome.debugger` and no CDP: Mozilla removed its CDP implementation in favour of
+[WebDriver BiDi](https://w3c.github.io/webdriver-bidi/), so `--remote-debugging-port` on Firefox
+opens a BiDi socket and nothing else. Canopy speaks it — same tools, same cockpit, same overlay:
+
+```bash
+canopy --launch-firefox                  # a throwaway profile under ~/.canopy/firefox-profile
+canopy --launch-firefox --real-profile   # your own profile, with your logins
+canopy --launch-firefox --browser /path/to/zen
+```
+
+Or start the browser yourself and just run the daemon — `zen --remote-debugging-port=9223`,
+`flatpak run app.zen_browser.zen --remote-debugging-port=9223`. The port is discovered on
+`ws://127.0.0.1:9223/session` (`--bidi-port`, `CANOPY_BIDI_URL`).
+
+Two things to know, both of them Gecko's:
+
+- **The remote agent only starts at launch.** A browser that is already running on that profile
+  takes the arguments, hands them to the running copy and exits, and the port never opens. Quit it
+  first — that is what `--real-profile` prints a reminder about.
+- **One session, and it outlives its socket.** Gecko allows a single WebDriver session per browser
+  and will not hand a stale one back, so Canopy ends its session on shutdown. If something else
+  took it (or a daemon was killed), the daemon says so and the fix is to restart the browser.
+
+What is missing compared to Chromium: no tab groups, no response bodies (BiDi does not expose them
+— read them with `browser_eval` and `fetch`), and no debugging banner either, which is a small win.
 
 ## What you see while an agent works
 
@@ -236,9 +269,10 @@ navigation, so the page's very first API calls are captured too.
 |---|---|
 | `src/daemon.js` | HTTP on `127.0.0.1:4664`: cockpit `/`, MCP `/mcp`, REST, WebSockets `/ws` (cockpit) and `/ext` (extension) |
 | `src/core.js` | Sessions, tabs, actions with the animated cursor, ref snapshots, network capture, screencast |
-| `src/cdp/*` | Two interchangeable transports: a direct CDP port, and a bridge through the extension |
+| `src/cdp/*` | Three interchangeable transports: a direct CDP port, a bridge through the extension, and WebDriver BiDi for Gecko |
 | `src/overlay.js` | In-page presence: veil, pill, AI cursor, keystroke HUD, title and favicon badging |
 | `src/snapshot.js` | DOM → numbered interactive refs (password values are never captured) |
+| `src/launch.js` | Finding and starting a browser: macOS bundles, Linux binaries and Flatpaks, Windows paths |
 | `src/recorder.js` | Append-only action log + JPEG frames per session |
 | `extension/` | MV3 service worker: tab lifecycle, CDP without a port |
 | `cockpit/` | Live Feed (tiles + action log) and Flight Recorder (scrubbable replay) |
@@ -386,16 +420,19 @@ reconnect (the extension remembers them in `chrome.storage.session`).
 **Known-thin, help welcome:**
 
 - Tab grouping in Arc returns `-1`; Arc may not render Chrome tab groups at all (degrades cleanly).
-- The Windows/Linux launcher paths are written but only macOS has been run.
+- The Windows launcher paths are written but nobody has run them.
 - No Web Store package yet — `dist/canopy-extension.zip` is built, publishing is pending.
 
 ## Limitations
 
-- **macOS is the tested platform.** The launcher and CLI carry Windows/Linux paths, but only
-  macOS has actually been run; auto-launching a closed browser is macOS-only (`open -g`).
+- **macOS and Linux are tested; Windows is not.** The launcher carries Windows paths but nobody
+  has run them.
 - Background tabs cannot screencast, so their feed falls back to ~1.5 s polling. Foreground tabs stream smoothly.
 - In extension mode Chrome shows its "is being debugged" banner. That is the cost of driving a
   real browser without a CDP port.
+- On Gecko there is no screencast at all, so every tab uses the polled feed; response bodies are
+  not available; and an agent tab that has never been selected has no layout of its own, so it is
+  given a 1280×800 viewport until `browser_resize` or a take-over says otherwise.
 - Snapshots cap at ~180 elements (form fields always included). Long pages: scroll and re-snapshot, or go code mode.
 - **Every action costs ~520 ms** — cursor travel and settle time, so a human can follow along. A raw
   CDP click is ~10× faster. That is the price of the overlay, and the reason long repetitive runs
