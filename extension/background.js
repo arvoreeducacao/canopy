@@ -112,8 +112,10 @@ async function connect() {
       return
     }
 
-    // Daemon keepalive — receiving it already reset the SW idle timer.
-    if (msg.event === 'ping') return
+    // Daemon keepalive — replying gives the daemon a liveness signal, and the
+    // outbound send resets the SW idle timer in browsers (Arc) where inbound
+    // traffic alone does not.
+    if (msg.event === 'ping') return send({ event: 'pong' })
     const reply = payload => send({ id: msg.id, ...payload })
     try {
       if (msg.op === 'cdp') {
@@ -121,7 +123,14 @@ async function connect() {
         reply({ ok: true, result: result || {} })
       } else if (msg.op === 'attach') {
         if (!attached.has(msg.tabId)) {
-          await chrome.debugger.attach({ tabId: msg.tabId }, '1.3')
+          // The debugger session belongs to the extension, not this worker
+          // instance — after a SW restart the Set is empty but the tab may
+          // still be attached from the previous life.
+          try {
+            await chrome.debugger.attach({ tabId: msg.tabId }, '1.3')
+          } catch (err) {
+            if (!/already attached/i.test(String(err && err.message || err))) throw err
+          }
           attached.add(msg.tabId)
         }
         await rememberAgentTab(msg.tabId)
@@ -203,6 +212,10 @@ chrome.tabs.onRemoved.addListener(tabId => {
 // bridge alive and reconnecting.
 chrome.alarms.create('canopy-keepalive', { periodInMinutes: 0.4 })
 chrome.alarms.onAlarm.addListener(() => connect())
+// Calling any extension API resets the SW idle timer — the reliable keepalive
+// where WebSocket traffic is not honored (Arc). Without it the worker dies
+// ~30s after each command burst and every in-flight op is lost.
+setInterval(() => { if (ws) chrome.runtime.getPlatformInfo() }, 20000)
 chrome.runtime.onStartup.addListener(() => connect())
 chrome.runtime.onInstalled.addListener(() => connect())
 chrome.action.onClicked.addListener(async () => {

@@ -17,20 +17,32 @@ export class ExtensionTransport extends EventEmitter {
 
   attachSocket(ws, hello = {}) {
     if (this.socket) {
+      // The old worker died without closing its socket (Arc leaves zombies) —
+      // anything still in flight there will never answer. Fail those callers
+      // now instead of letting each one burn the full 30s op timeout.
       try { this.socket.close() } catch {}
+      for (const [, p] of this.pending) p.reject(new Error('extension reconnected'))
+      this.pending.clear()
     }
     this.socket = ws
     this.browserInfo = hello.browser || 'via extension'
     this.ready = true
+    this.lastSeen = Date.now()
     // MV3 service workers idle out after ~30s and take the socket with them;
-    // inbound WS traffic resets that timer (Chrome 116+), so a ping every 20s
-    // keeps the bridge alive instead of flapping connect/disconnect.
+    // a ping every 20s keeps the bridge alive, and the extension answers with
+    // a pong so a socket whose worker silently died can be detected and
+    // dropped instead of swallowing commands.
     clearInterval(this.pingTimer)
     this.pingTimer = setInterval(() => {
+      if (Date.now() - this.lastSeen > 65000) {
+        try { ws.close() } catch {}
+        return
+      }
       try { ws.send(JSON.stringify({ event: 'ping' })) } catch {}
     }, 20000)
     this.pingTimer.unref?.()
     ws.on('message', raw => {
+      this.lastSeen = Date.now()
       let msg
       try { msg = JSON.parse(raw) } catch { return }
       this.#onMessage(msg)
