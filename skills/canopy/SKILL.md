@@ -70,3 +70,4 @@ Prefer this for anything repetitive (pagination, bulk actions, polling).
 - `browser_eval` runs in the page's main world; results must be JSON-serializable.
 - Everything is recorded: the user can replay your session frame by frame in the cockpit. Act accordingly.
 - The user's own tabs are invisible to you: you only see tabs you opened. That is by design, don't fight it.
+- The daemon is shared by every agent session on the machine. Restarting it kills everyone's live sessions and tabs, not just yours — before any restart, call `browser_status` and make sure no other session is active. If `browser_status` itself fails the daemon is unreachable — follow the startup line at the top. If it answers but actions on a tab fail, the problem is the tab or the extension bridge, and restarting the daemon won't fix it.

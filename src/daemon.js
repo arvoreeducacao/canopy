@@ -16,6 +16,11 @@ import { mcpHandler } from './mcp.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost = '', ssoHost = '', ssoHeader = 'x-auth-request-email', ssoSecret = '', extId = '', mcpOrigin = '', cdpUrl = 'http://127.0.0.1:9222', dataDir } = {}) {
+  const plain = { log: console.log.bind(console), error: console.error.bind(console) }
+  const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19)
+  console.log = (...args) => plain.log(stamp(), ...args)
+  console.error = (...args) => plain.error(stamp(), ...args)
+
   // Cloud mode: bound beyond loopback, every route and socket is token-gated
   // (only the cockpit shell stays open — it holds no data without the token).
   const isPublic = !/^(127\.0\.0\.1|localhost|::1)$/.test(bind)
@@ -262,6 +267,8 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
 
   const cockpitSocket = ws => {
     controller.setStreaming(true)
+    ws.isAlive = true
+    ws.on('pong', () => { ws.isAlive = true })
     ws.on('close', () => {
       if (wssCockpit.clients.size === 0) controller.setStreaming(false)
     })
@@ -311,6 +318,19 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   })
 
   controller.viewers = () => wssCockpit.clients.size
+
+  // A cockpit tab that dies without a FIN (Arc archives tabs in place) would
+  // otherwise hold clients.size above zero and keep every tab screencasting
+  // at full rate forever — ping each client and drop the ones that go quiet.
+  const cockpitSweep = setInterval(() => {
+    for (const c of wssCockpit.clients) {
+      if (c.isAlive === false) { c.terminate(); continue }
+      c.isAlive = false
+      try { c.ping() } catch {}
+    }
+    if (wssCockpit.clients.size === 0) controller.setStreaming(false)
+  }, 30000)
+  cockpitSweep.unref?.()
 
   const broadcast = msg => {
     const raw = JSON.stringify(msg)
