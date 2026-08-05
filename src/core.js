@@ -86,7 +86,7 @@ export class Controller extends EventEmitter {
     this.streaming = on
     for (const tab of this.tabs.values()) {
       const method = on ? 'Page.startScreencast' : 'Page.stopScreencast'
-      const params = on ? { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 2 } : {}
+      const params = on ? { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 4 } : {}
       tab.transport.send(tab.ref, method, params).catch(() => {})
     }
   }
@@ -210,7 +210,7 @@ export class Controller extends EventEmitter {
     await send('Runtime.addBinding', { name: '__canopyControl' }).catch(() => {})
     // Screencast only streams while someone is actually watching the cockpit —
     // it is the main constant CPU cost otherwise.
-    if (this.streaming) await send('Page.startScreencast', { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 2 }).catch(() => {})
+    if (this.streaming) await send('Page.startScreencast', { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 4 }).catch(() => {})
     this.#applyBadge(tab).catch(() => {})
     // Screencast only streams while the tab is rendered; background tabs go
     // dark. Poll captureScreenshot (which works occluded) as a fallback feed.
