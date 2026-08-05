@@ -16,6 +16,11 @@ import { mcpHandler } from './mcp.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost = '', ssoHost = '', ssoHeader = 'x-auth-request-email', ssoSecret = '', extId = '', mcpOrigin = '', cdpUrl = 'http://127.0.0.1:9222', dataDir } = {}) {
+  const plain = { log: console.log.bind(console), error: console.error.bind(console) }
+  const stamp = () => new Date().toISOString().replace('T', ' ').slice(0, 19)
+  console.log = (...args) => plain.log(stamp(), ...args)
+  console.error = (...args) => plain.error(stamp(), ...args)
+
   // Cloud mode: bound beyond loopback, every route and socket is token-gated
   // (only the cockpit shell stays open — it holds no data without the token).
   const isPublic = !/^(127\.0\.0\.1|localhost|::1)$/.test(bind)
