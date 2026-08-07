@@ -1,12 +1,14 @@
 // Canopy Bridge — MV3 service worker.
-// Keeps a WebSocket to the local Canopy daemon and executes its commands:
-// tab lifecycle via chrome.tabs, CDP via chrome.debugger (no --remote-debugging-port
-// needed, so this works in Arc). Forwards debugger events and human-focus signals back.
+// The daemon socket lives in the offscreen document (offscreen.js), which Chrome
+// does not idle out. This worker owns what that document cannot reach —
+// chrome.tabs, chrome.debugger, chrome.action, chrome.storage — and is woken on
+// demand by the port the offscreen document holds open. It is free to die
+// between commands: nothing it keeps in memory is load-bearing.
 
-const DAEMON = 'ws://127.0.0.1:4664/ext'
-let ws = null
 const attached = new Set()
-const agentTabs = new Set()
+const outbox = []
+let bridge = null
+let creating = null
 
 // Pairing secret, shared with the daemon (~/.canopy/ext-secret, shown by
 // `canopy pair`) and pasted into the options page once. It is what stops any
@@ -18,215 +20,209 @@ async function pairingSecret() {
   return canopySecret.trim()
 }
 
-function hex(buf) {
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
-// Each side signs a different string. Sharing one would let anything talk the
-// daemon into producing the proof it then asks for, and attach without knowing
-// the secret; the role prefix is what stops that. Both nonces go in so a proof
-// belongs to the exchange that produced it.
-async function proof(secret, role, clientNonce, serverNonce) {
-  const enc = new TextEncoder()
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  return hex(await crypto.subtle.sign('HMAC', key, enc.encode(`${role}|${clientNonce}|${serverNonce}`)))
-}
-
 function badge(text, color, title) {
   chrome.action.setBadgeText({ text })
   if (color) chrome.action.setBadgeBackgroundColor({ color })
   chrome.action.setTitle({ title: title || 'Canopy Bridge' })
 }
 
-// Agent tab ids also live in storage.session: it survives service-worker
-// restarts (unlike these Sets) and is cleared when the browser closes — so a
+async function hasOffscreen() {
+  if (chrome.offscreen?.hasDocument) return chrome.offscreen.hasDocument()
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })
+  return contexts.length > 0
+}
+
+async function ensureOffscreen() {
+  if (await hasOffscreen().catch(() => false)) return
+  if (creating) return creating
+  creating = chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['WORKERS'],
+    justification: 'Holds the WebSocket to the local Canopy daemon; a service worker is recycled mid-session and takes the socket with it.'
+  }).catch(err => {
+    // Two wake-ups can race here; losing the race is the same as winning it.
+    if (!/single offscreen document/i.test(String(err && err.message || err))) throw err
+  }).finally(() => { creating = null })
+  return creating
+}
+
+// Agent tab ids live in storage.session: it survives service-worker restarts
+// (an in-memory Set does not) and is cleared when the browser closes — so a
 // reconnecting daemon can find tabs a dead daemon left behind and close them.
-async function rememberAgentTab(tabId) {
-  agentTabs.add(tabId)
+async function agentTabIds() {
   const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
-  if (!agentTabIds.includes(tabId)) await chrome.storage.session.set({ agentTabIds: [...agentTabIds, tabId] })
+  return agentTabIds
+}
+async function rememberAgentTab(tabId) {
+  const ids = await agentTabIds()
+  if (!ids.includes(tabId)) await chrome.storage.session.set({ agentTabIds: [...ids, tabId] })
 }
 async function forgetAgentTab(tabId) {
-  agentTabs.delete(tabId)
   attached.delete(tabId)
-  const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
-  await chrome.storage.session.set({ agentTabIds: agentTabIds.filter(id => id !== tabId) })
+  const ids = await agentTabIds()
+  await chrome.storage.session.set({ agentTabIds: ids.filter(id => id !== tabId) })
 }
 async function liveAgentTabs() {
-  const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
+  const ids = await agentTabIds()
   const alive = []
-  for (const id of agentTabIds) {
+  for (const id of ids) {
     try { await chrome.tabs.get(id); alive.push(id) } catch {}
   }
-  if (alive.length !== agentTabIds.length) await chrome.storage.session.set({ agentTabIds: alive })
+  if (alive.length !== ids.length) await chrome.storage.session.set({ agentTabIds: alive })
   return alive
 }
 
-function send(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
-}
-
-async function connect() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
-  const secret = await pairingSecret()
-  if (!secret) return badge('!', '#DC2626', 'Canopy Bridge — not paired. Click to enter the pairing code.')
-  try { ws = new WebSocket(DAEMON) } catch { return }
-
-  // Handshake before anything else: we prove the secret to the daemon and the
-  // daemon proves it to us. Until both sides check out, no command is obeyed.
-  let paired = false
-  let refused = false
-  const myNonce = hex(crypto.getRandomValues(new Uint8Array(16)))
-  ws.onopen = () => send({ event: 'auth', nonce: myNonce })
-  ws.onclose = () => {
-    ws = null
-    // Keep the warning up: the alarm retries every ~24s, and a plain
-    // "disconnected" would hide the fact that something failed the check.
-    if (!refused) badge('', null, 'Canopy Bridge — disconnected')
-  }
-  ws.onerror = () => {}
-  ws.onmessage = async e => {
-    let msg
-    try { msg = JSON.parse(e.data) } catch { return }
-
-    if (!paired) {
-      if (msg.event !== 'auth' || typeof msg.nonce !== 'string'
-          || msg.proof !== await proof(secret, 'daemon', myNonce, msg.nonce)) {
-        // Something is answering on 4664 that does not know the secret. Do not
-        // talk to it — it would be handing it this browser's debugger.
-        refused = true
-        badge('!', '#DC2626', 'Canopy Bridge — daemon failed the pairing check. Wrong code, or another process holds port 4664.')
-        try { ws.close() } catch {}
-        ws = null
-        return
-      }
-      paired = true
-      const orphans = await liveAgentTabs().catch(() => [])
-      send({
-        event: 'hello',
-        proof: await proof(secret, 'extension', myNonce, msg.nonce),
-        browser: navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium',
-        orphans
-      })
-      badge('on', '#F59E0B', 'Canopy Bridge — connected')
-      return
-    }
-
-    // Daemon keepalive — replying gives the daemon a liveness signal, and the
-    // outbound send resets the SW idle timer in browsers (Arc) where inbound
-    // traffic alone does not.
-    if (msg.event === 'ping') return send({ event: 'pong' })
-    const reply = payload => send({ id: msg.id, ...payload })
+// A debugger or tab event can wake this worker while the port is still down —
+// the offscreen document only reconnects it when it has something to say, and
+// it has no way of knowing a new worker just started. Hold the message and ask
+// the document to reconnect; onConnect drains what piled up.
+function toBridge(msg) {
+  if (bridge) {
     try {
-      if (msg.op === 'cdp') {
-        const result = await chrome.debugger.sendCommand({ tabId: msg.tabId }, msg.method, msg.params || {})
-        reply({ ok: true, result: result || {} })
-      } else if (msg.op === 'attach') {
-        if (!attached.has(msg.tabId)) {
-          // The debugger session belongs to the extension, not this worker
-          // instance — after a SW restart the Set is empty but the tab may
-          // still be attached from the previous life.
-          try {
-            await chrome.debugger.attach({ tabId: msg.tabId }, '1.3')
-          } catch (err) {
-            if (!/already attached/i.test(String(err && err.message || err))) throw err
-          }
-          attached.add(msg.tabId)
-        }
-        await rememberAgentTab(msg.tabId)
-        reply({ ok: true, result: {} })
-      } else if (msg.op === 'tabs.create') {
-        const tab = await chrome.tabs.create({ url: msg.url, active: false })
-        await rememberAgentTab(tab.id)
-        reply({ ok: true, result: { tabId: tab.id } })
-      } else if (msg.op === 'tabs.group') {
-        // All agent tabs live in one collapsed-friendly amber group ("AI").
-        // In Arc the tabs.group/tabGroups promises hang forever — race a
-        // short timeout so the daemon always gets a reply.
-        const group = (async () => {
-          const tab = await chrome.tabs.get(msg.tabId)
-          const title = msg.title || 'AI'
-          let groupId = null
-          try {
-            const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title })
-            if (groups.length) groupId = groups[0].id
-          } catch {}
-          if (groupId !== null) {
-            await chrome.tabs.group({ tabIds: [msg.tabId], groupId })
-          } else {
-            groupId = await chrome.tabs.group({ tabIds: [msg.tabId] })
-            await chrome.tabGroups.update(groupId, { title, color: 'yellow' })
-          }
-          return { groupId }
-        })()
-        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('tab groups unsupported (timeout)')), 1500))
-        reply({ ok: true, result: await Promise.race([group, timeout]) })
-      } else if (msg.op === 'tabs.remove') {
-        await forgetAgentTab(msg.tabId)
-        await chrome.tabs.remove(msg.tabId).catch(() => {})
-        reply({ ok: true, result: {} })
-      } else if (msg.op === 'tabs.activate') {
-        const tab = await chrome.tabs.get(msg.tabId)
-        await chrome.windows.update(tab.windowId, { focused: true })
-        await chrome.tabs.update(msg.tabId, { active: true })
-        reply({ ok: true, result: {} })
-      } else if (msg.op === 'tabs.list') {
-        const tabs = await chrome.tabs.query({})
-        reply({ ok: true, result: tabs.map(t => ({ tabId: t.id, url: t.url, title: t.title, active: t.active, groupId: t.groupId })) })
-      } else {
-        reply({ ok: false, error: `unknown op ${msg.op}` })
-      }
-    } catch (err) {
-      reply({ ok: false, error: String(err && err.message || err) })
+      bridge.postMessage(msg)
+      return true
+    } catch {
+      bridge = null
     }
   }
+  outbox.push(msg)
+  if (outbox.length > 500) outbox.shift()
+  chrome.runtime.sendMessage({ t: 'wake' }).catch(() => ensureOffscreen())
+  return false
 }
+
+function emit(payload) {
+  toBridge({ t: 'event', payload })
+}
+
+async function runOp(op, a) {
+  if (op === 'cdp') {
+    const result = await chrome.debugger.sendCommand({ tabId: a.tabId }, a.method, a.params || {})
+    return { ok: true, result: result || {} }
+  }
+  if (op === 'attach') {
+    if (!attached.has(a.tabId)) {
+      // The debugger session belongs to the extension, not this worker
+      // instance — after a SW restart the Set is empty but the tab may
+      // still be attached from the previous life.
+      try {
+        await chrome.debugger.attach({ tabId: a.tabId }, '1.3')
+      } catch (err) {
+        if (!/already attached/i.test(String(err && err.message || err))) throw err
+      }
+      attached.add(a.tabId)
+    }
+    await rememberAgentTab(a.tabId)
+    return { ok: true, result: {} }
+  }
+  if (op === 'tabs.create') {
+    const tab = await chrome.tabs.create({ url: a.url, active: false })
+    await rememberAgentTab(tab.id)
+    return { ok: true, result: { tabId: tab.id } }
+  }
+  if (op === 'tabs.group') {
+    // All agent tabs live in one collapsed-friendly amber group ("AI").
+    // In Arc the tabs.group/tabGroups promises hang forever — race a
+    // short timeout so the daemon always gets a reply.
+    const group = (async () => {
+      const tab = await chrome.tabs.get(a.tabId)
+      const title = a.title || 'AI'
+      let groupId = null
+      try {
+        const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title })
+        if (groups.length) groupId = groups[0].id
+      } catch {}
+      if (groupId !== null) {
+        await chrome.tabs.group({ tabIds: [a.tabId], groupId })
+      } else {
+        groupId = await chrome.tabs.group({ tabIds: [a.tabId] })
+        await chrome.tabGroups.update(groupId, { title, color: 'yellow' })
+      }
+      return { groupId }
+    })()
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('tab groups unsupported (timeout)')), 1500))
+    return { ok: true, result: await Promise.race([group, timeout]) }
+  }
+  if (op === 'tabs.remove') {
+    await forgetAgentTab(a.tabId)
+    await chrome.tabs.remove(a.tabId).catch(() => {})
+    return { ok: true, result: {} }
+  }
+  if (op === 'tabs.activate') {
+    const tab = await chrome.tabs.get(a.tabId)
+    await chrome.windows.update(tab.windowId, { focused: true })
+    await chrome.tabs.update(a.tabId, { active: true })
+    return { ok: true, result: {} }
+  }
+  if (op === 'tabs.list') {
+    const tabs = await chrome.tabs.query({})
+    return { ok: true, result: tabs.map(t => ({ tabId: t.id, url: t.url, title: t.title, active: t.active, groupId: t.groupId })) }
+  }
+  if (op === 'tabs.orphans') {
+    return { ok: true, result: await liveAgentTabs().catch(() => []) }
+  }
+  return { ok: false, error: `unknown op ${op}` }
+}
+
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== 'canopy-bridge') return
+  bridge = port
+  while (outbox.length) {
+    try { port.postMessage(outbox.shift()) } catch { break }
+  }
+  port.onDisconnect.addListener(() => { if (bridge === port) bridge = null })
+  port.onMessage.addListener(async msg => {
+    const answer = payload => {
+      try { port.postMessage({ t: 'result', id: msg.id, ...payload }) } catch {}
+    }
+    if (msg.t === 'badge') return badge(msg.text, msg.color, msg.title)
+    if (msg.t === 'secret') return answer({ ok: true, value: await pairingSecret() })
+    if (msg.t !== 'op') return
+    try {
+      answer(await runOp(msg.op, msg.args || {}))
+    } catch (err) {
+      answer({ ok: false, error: String(err && err.message || err) })
+    }
+  })
+})
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (source.tabId) send({ event: 'cdp', tabId: source.tabId, method, params })
+  if (source.tabId) emit({ event: 'cdp', tabId: source.tabId, method, params })
 })
 
 chrome.debugger.onDetach.addListener(source => {
   if (source.tabId) {
     attached.delete(source.tabId)
-    send({ event: 'debugger.detached', tabId: source.tabId })
+    emit({ event: 'debugger.detached', tabId: source.tabId })
   }
 })
 
-// Human focused an agent tab -> daemon pauses the agent there.
-chrome.tabs.onActivated.addListener(({ tabId }) => {
-  if (agentTabs.has(tabId)) send({ event: 'tab.activated', tabId })
+// Human focused an agent tab -> daemon pauses the agent there. Read from
+// storage rather than memory: this worker is usually a fresh one that never saw
+// the tab being opened.
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  if ((await agentTabIds()).includes(tabId)) emit({ event: 'tab.activated', tabId })
 })
 
-chrome.tabs.onRemoved.addListener(tabId => {
-  if (agentTabs.has(tabId)) {
-    forgetAgentTab(tabId)
-    send({ event: 'tab.removed', tabId })
-  } else {
-    // Even if this worker restarted and lost the in-memory Set, keep storage honest.
-    forgetAgentTab(tabId)
-  }
+chrome.tabs.onRemoved.addListener(async tabId => {
+  const wasAgentTab = (await agentTabIds()).includes(tabId)
+  await forgetAgentTab(tabId)
+  if (wasAgentTab) emit({ event: 'tab.removed', tabId })
 })
 
-// MV3 service workers get suspended; an alarm plus event traffic keeps the
-// bridge alive and reconnecting.
-chrome.alarms.create('canopy-keepalive', { periodInMinutes: 0.4 })
-chrome.alarms.onAlarm.addListener(() => connect())
-// Calling any extension API resets the SW idle timer — the reliable keepalive
-// where WebSocket traffic is not honored (Arc). Without it the worker dies
-// ~30s after each command burst and every in-flight op is lost.
-setInterval(() => { if (ws) chrome.runtime.getPlatformInfo() }, 20000)
-chrome.runtime.onStartup.addListener(() => connect())
-chrome.runtime.onInstalled.addListener(() => connect())
+// Watchdog only. The offscreen document holds the socket and reconnects on its
+// own; this is here for the case where the document itself is gone (browser
+// startup, a crash, an extension reload).
+chrome.alarms.create('canopy-keepalive', { periodInMinutes: 1 })
+chrome.alarms.onAlarm.addListener(() => ensureOffscreen())
+chrome.runtime.onStartup.addListener(() => ensureOffscreen())
+chrome.runtime.onInstalled.addListener(() => ensureOffscreen())
 chrome.action.onClicked.addListener(async () => {
   if (!await pairingSecret()) return chrome.runtime.openOptionsPage()
-  connect()
+  ensureOffscreen()
 })
 // Pasting a new code in the options page re-pairs without a browser restart.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.canopySecret) {
-    if (ws) { try { ws.close() } catch {} ; ws = null }
-    connect()
-  }
+  if (area === 'local' && changes.canopySecret) toBridge({ t: 'repair' })
 })
-connect()
+ensureOffscreen()
