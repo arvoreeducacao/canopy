@@ -133,12 +133,23 @@ the browser closes. No user data is stored.
 **`alarms`**
 
 ```
-A short periodic alarm wakes the suspended MV3 service worker so it can re-establish its
-WebSocket to the local daemon. Without it the bridge silently dies a few seconds after the
-browser goes idle.
+A periodic alarm wakes the suspended MV3 service worker so it can check that the offscreen
+document holding the connection to the local daemon is still there, and recreate it after a
+browser restart or a crash. Without it the bridge stays down until the user clicks the extension.
 ```
 
-**Remote code:** answer **No, I am not using remote code.** All logic ships in `background.js`.
+**`offscreen`**
+
+```
+The extension keeps one WebSocket open to a daemon on the user's own machine (127.0.0.1:4664).
+An MV3 service worker is suspended after about 30 seconds of inactivity and the socket dies with
+it, which drops commands mid-task; an offscreen document is not recycled that way, so it is what
+holds the connection. The document renders nothing and loads no remote content — it exists only
+to own that socket and pass messages to the service worker, which performs the actual work.
+```
+
+**Remote code:** answer **No, I am not using remote code.** All logic ships in `background.js`
+and `offscreen.js`.
 
 **Data usage** — tick **Web history** and **Website content**, then sign the three certifications
 (no sale to third parties, no use unrelated to single purpose, no creditworthiness/lending use).
