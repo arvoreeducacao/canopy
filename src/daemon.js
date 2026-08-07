@@ -332,6 +332,14 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   }, 30000)
   cockpitSweep.unref?.()
 
+  // Nothing else ever reclaims a tab whose agent died without closing it.
+  const idleSweep = setInterval(() => {
+    controller.reapIdleTabs()
+      .then(ids => { if (ids.length) console.log(`[canopy] reclaimed ${ids.length} idle agent tab(s): ${ids.join(', ')}`) })
+      .catch(() => {})
+  }, 60000)
+  idleSweep.unref?.()
+
   const broadcast = msg => {
     const raw = JSON.stringify(msg)
     for (const c of wssCockpit.clients) {
