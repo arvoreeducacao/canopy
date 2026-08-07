@@ -199,6 +199,7 @@
   .tile.live    .sig { color: var(--green); } .tile.live    .sig .dot { background: var(--green); animation: blip 1.6s ease-in-out infinite; }
   .tile.held    .sig { color: var(--amber); } .tile.held    .sig .dot { background: var(--amber); }
   .tile.stopped .sig { color: var(--red); }   .tile.stopped .sig .dot { background: var(--red); }
+  .tile.idle    .sig { color: var(--dim); }   .tile.idle    .sig .dot { background: var(--dim); }
   @keyframes blip { 50% { opacity: .25; } }
   .tid { font-size: 9.5px; color: var(--faint); letter-spacing: .08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
   .tele { margin-left: auto; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
@@ -581,9 +582,16 @@ function copyCmd(el) {
   setTimeout(() => el.classList.remove('copied'), 1400)
 }
 
+// "live" used to be the default for any tab nobody had stopped, so a tab
+// abandoned hours ago pulsed green exactly like one being driven right now.
+const IDLE_AFTER_MS = 5 * 60 * 1000
+
 function tile(t) {
-  const status = t.stopRequested ? 'stopped' : t.takenOver ? 'held' : 'live'
-  const sigTxt = t.stopRequested ? 'stopped' : t.takenOver ? 'yours' : 'live'
+  const idleFor = Date.now() - (t.lastUsedAt || t.createdAt || Date.now())
+  const idle = idleFor > IDLE_AFTER_MS
+  const status = t.stopRequested ? 'stopped' : t.takenOver ? 'held' : idle ? 'idle' : 'live'
+  const sigTxt = t.stopRequested ? 'stopped' : t.takenOver ? 'yours'
+    : idle ? 'idle ' + fmtElapsed(t.lastUsedAt || t.createdAt) : 'live'
   const paused = t.takenOver || t.stopRequested
   const frame = state.frames[t.id]
   const img = frame

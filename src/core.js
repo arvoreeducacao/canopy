@@ -21,6 +21,14 @@ const KEYS = {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
+// An agent tab is only ever closed by the agent that opened it, and an agent
+// that dies — a killed session, a crashed client — never gets to. Nothing else
+// reclaimed them, so they accumulated for as long as the browser stayed up.
+// Idle time is measured from the last action the agent took on the tab, not
+// from when it was opened: a tab being worked on for hours is not idle.
+const TAB_IDLE_MS = Number(process.env.CANOPY_TAB_IDLE_MS) || 30 * 60 * 1000
+const MAX_TABS_PER_SESSION = Number(process.env.CANOPY_MAX_TABS_PER_SESSION) || 8
+
 // Keystroke-HUD glyphs (KeyCastr style), shown in-page when the agent types.
 const KEYCAP = {
   Enter: '⏎ enter', Return: '⏎ enter', Tab: '⇥ tab', Escape: '⎋ esc',
@@ -155,6 +163,7 @@ export class Controller extends EventEmitter {
     if (!t && this.requestBrowser) t = await this.requestBrowser().catch(() => null)
     if (!t) throw new Error('no browser connected — launch Chrome with --remote-debugging-port or connect the Canopy extension')
     const s = this.#resolveSession(session)
+    await this.#enforceTabBudget(s)
     // Open on about:blank first so Network/Runtime/Emulation are enabled
     // BEFORE the real navigation — otherwise the page's initial API calls
     // escape the request capture.
@@ -177,7 +186,8 @@ export class Controller extends EventEmitter {
       messages: [],
       msgSeq: 0,
       msgCursor: 0,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastUsedAt: Date.now()
     }
     this.tabs.set(tab.id, tab)
     s.tabIds.push(tab.id)
@@ -261,8 +271,51 @@ export class Controller extends EventEmitter {
       .map(t => ({
         id: t.id, url: t.url, title: t.title, session: t.session, label: t.label,
         takenOver: t.takenOver, stopRequested: t.stopRequested, driving: t.driving,
-        steps: t.steps, requests: t.requests.length, createdAt: t.createdAt
+        steps: t.steps, requests: t.requests.length, createdAt: t.createdAt,
+        lastUsedAt: t.lastUsedAt || t.createdAt
       }))
+  }
+
+  // Reclaim tabs whose agent stopped working them. A tab the human took over is
+  // theirs for as long as they want it, however idle it looks from here.
+  async reapIdleTabs(now = Date.now()) {
+    const reaped = []
+    const bereaved = new Set()
+    for (const tab of [...this.tabs.values()]) {
+      if (tab.takenOver) continue
+      if (now - (tab.lastUsedAt || tab.createdAt) < TAB_IDLE_MS) continue
+      bereaved.add(tab.session)
+      await this.closeTab(tab.id).catch(() => {})
+      reaped.push(tab.id)
+    }
+    // Only sessions this sweep emptied. A session left empty by the agent
+    // itself belongs to an agent that is alive and probably between tabs —
+    // deleting it would fail its next open with "session not found".
+    for (const id of bereaved) {
+      const s = this.sessions.get(id)
+      if (!s || id === 'default' || s.endedAt) continue
+      if (s.tabIds.some(tabId => this.tabs.has(tabId))) continue
+      s.endedAt = now
+      this.recorder.writeMeta(s)
+      this.sessions.delete(id)
+    }
+    if (reaped.length) this.#state()
+    return reaped
+  }
+
+  // Refusing beats evicting: the tabs still open may all be in use, and only the
+  // agent knows which one it is done with. Sweep first so an agent is never
+  // blocked by tabs that were already dead.
+  async #enforceTabBudget(s) {
+    const live = () => s.tabIds.filter(id => this.tabs.has(id))
+    if (live().length < MAX_TABS_PER_SESSION) return
+    await this.reapIdleTabs()
+    const still = live()
+    if (still.length < MAX_TABS_PER_SESSION) return
+    throw new Error(
+      `session ${s.id} already holds ${still.length} open tabs (limit ${MAX_TABS_PER_SESSION}) — `
+      + `close one with browser_close before opening another: ${still.join(', ')}`
+    )
   }
 
   async closeTab(id) {
@@ -795,6 +848,9 @@ export class Controller extends EventEmitter {
 
   #log(tab, tool, detail) {
     tab.steps += 1
+    // Every agent action funnels through here; the title poller deliberately
+    // does not, so it cannot keep an abandoned tab looking alive.
+    tab.lastUsedAt = Date.now()
     const entry = { session: tab.session, tab: tab.id, tool, ...detail }
     this.recorder.action(tab.session, entry)
     const evt = { ts: Date.now(), ...entry, title: tab.title, url: tab.url, label: tab.label }
