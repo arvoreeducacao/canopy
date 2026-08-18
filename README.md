@@ -253,6 +253,27 @@ plain files: grep them, diff them, delete them. The cockpit's **Flight Recorder*
 session on a scrubbable timeline, filterable by tab, so "what did the agent actually do at 14:32"
 has an answer.
 
+## Agents that run somewhere else
+
+The daemon and the agent do not have to share a machine. Anything that lands port 4664 on the
+agent's loopback works — `ssh -R 4664:127.0.0.1:4664 you@remote`, a VPN address, a port forwarded
+into a container or a pod. On the far side it is an ordinary local connection:
+
+```bash
+claude mcp add --scope user --transport http canopy http://127.0.0.1:4664/mcp \
+  --header "Authorization: Bearer $(cat ~/.canopy/token)"
+```
+
+Two things have to hold. The token travels with the agent — it is what the daemon checks, so copy
+the file (mode `0600`) or paste it into the header. And the `Host` the daemon sees stays loopback,
+which a forwarded port gives you for free; putting a reverse proxy in front instead means
+`CANOPY_PUBLIC_HOST`, as in cloud mode below.
+
+What does not move is the cockpit: the browser, the recordings and the live view stay on your
+machine, so an agent on the other side of the world drives tabs you can watch, take over and stop
+from your own screen. Cloud mode, below, is the opposite trade — the browser moves too, for when
+nobody is at the screen.
+
 ## Cloud mode
 
 Everything above runs against the browser on your machine. Cloud mode runs the *same* daemon
