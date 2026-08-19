@@ -204,11 +204,7 @@ export const BADGE_ON = `(() => {
   if (window.__canopyBadgeKeep) clearInterval(window.__canopyBadgeKeep)
   if (window.__canopyBadge && !(window.__canopyBadge.link && window.__canopyBadge.link.isConnected)) delete window.__canopyBadge
   if (!window.__canopyBadge) {
-    window.__canopyBadge = { title: document.title, icons: [] }
-    document.querySelectorAll('link[rel*="icon"]').forEach(l => {
-      window.__canopyBadge.icons.push({ el: l, href: l.href })
-      l.remove()
-    })
+    window.__canopyBadge = { title: document.title }
     const link = document.createElement('link')
     link.rel = 'icon'
     link.id = '__canopy_favicon'
@@ -216,6 +212,17 @@ export const BADGE_ON = `(() => {
     window.__canopyBadge.link = link
   }
   const PREFIX = 'AI \\u00B7 '
+  // Assigning document.title (or removing the page's own <link rel=icon>
+  // elements) replaces/detaches head nodes that React/Next manage; their next
+  // route change then dies in removeChild-of-null and can leave the app frozen
+  // mid-navigation. Badge the tab by MUTATING what is already there: write the
+  // <title> text node's character data in place, and repoint icon hrefs.
+  const setTitle = (next) => {
+    const el = document.querySelector('title')
+    const node = el && el.firstChild
+    if (node && node.nodeType === 3) node.data = next
+    else document.title = next
+  }
   // Static AI sparkle favicon, drawn once. Chrome throttles rapid favicon
   // swaps (animated spinners were flaky per-site), so the favicon marks
   // OWNERSHIP with the universal AI symbol; motion lives in the page overlay.
@@ -254,15 +261,18 @@ export const BADGE_ON = `(() => {
   }
   const assert = () => {
     if (!window.__canopyBadge) return
-    // pages re-adding their own icon links would win — keep stashing them
+    // pages re-adding or resetting their own icon links would win — keep
+    // repointing the href (attribute mutation is framework-safe) instead of
+    // detaching nodes the page's framework may still own
     document.querySelectorAll('link[rel*="icon"]:not(#__canopy_favicon)').forEach(l => {
-      window.__canopyBadge.icons.push({ el: l, href: l.href })
-      l.remove()
+      if (l.href === ICON) return
+      l.__canopyHref = l.href
+      l.href = ICON
     })
     setIcon()
     if (!document.title.startsWith(PREFIX)) {
       window.__canopyBadge.title = document.title
-      document.title = PREFIX + document.title
+      setTitle(PREFIX + document.title)
     }
   }
   assert()
@@ -272,12 +282,21 @@ export const BADGE_ON = `(() => {
 export const BADGE_OFF = `(() => {
   if (window.__canopyBadgeKeep) clearInterval(window.__canopyBadgeKeep)
   if (window.__canopyBadge) {
-    document.title = window.__canopyBadge.title.replace(/^AI \\u00B7 /, '')
+    // Mirror of BADGE_ON: strip the prefix by mutating the existing <title>
+    // text node and restore icon hrefs in place — never swap head nodes that
+    // the page's framework may still reconcile against.
+    const el = document.querySelector('title')
+    const node = el && el.firstChild
+    const clean = document.title.replace(/^AI \\u00B7 /, '')
+    if (node && node.nodeType === 3) node.data = clean
+    else document.title = clean
     if (window.__canopyBadge.link) window.__canopyBadge.link.remove()
-    for (const { el, href } of window.__canopyBadge.icons) {
-      el.href = href
-      document.head && document.head.appendChild(el)
-    }
+    document.querySelectorAll('link[rel*="icon"]').forEach(l => {
+      if (l.__canopyHref) {
+        l.href = l.__canopyHref
+        delete l.__canopyHref
+      }
+    })
     delete window.__canopyBadge
     delete window.__canopyBadgeKeep
   }
