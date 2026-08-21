@@ -37,6 +37,7 @@ export function sessionFromHeaders(headers) {
 }
 
 const MAX_TABS_PER_SESSION = Number(process.env.CANOPY_MAX_TABS_PER_SESSION) || 8
+const SCREENCAST_PARAMS = { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 4 }
 
 // Keystroke-HUD glyphs (KeyCastr style), shown in-page when the agent types.
 const KEYCAP = {
@@ -50,9 +51,12 @@ export class Controller extends EventEmitter {
   // restrictUrls: cloud mode. The browser sits inside someone's private
   // network, so it must not be usable as an SSRF pivot (or a metadata-service
   // reader) by whoever holds the token.
-  constructor(recorder, { restrictUrls = false } = {}) {
+  constructor(recorder, { restrictUrls = false, isolateSessions = false } = {}) {
     super()
     this.restrictUrls = restrictUrls
+    this.isolateSessions = isolateSessions
+    this.watch = null
+    this.contextTransports = new Map()
     this.recorder = recorder
     this.transports = []
     this.tabs = new Map()      // id -> tab
@@ -90,6 +94,7 @@ export class Controller extends EventEmitter {
         for (const tab of this.tabs.values()) {
           if (tab.transport === t) this.#dropTab(tab, 'transport disconnected')
         }
+        this.#forgetContextsOf(t)
       }
       if (t.kind !== 'extension') return drop()
       clearTimeout(t._dropTimer)
@@ -99,13 +104,29 @@ export class Controller extends EventEmitter {
   }
 
   async setStreaming(on) {
-    if (this.streaming === on) return
-    this.streaming = on
-    for (const tab of this.tabs.values()) {
-      const method = on ? 'Page.startScreencast' : 'Page.stopScreencast'
-      const params = on ? { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 4 } : {}
-      tab.transport.send(tab.ref, method, params).catch(() => {})
-    }
+    return this.setWatch(on ? new Set(['*']) : null)
+  }
+
+  setWatch(watch) {
+    this.watch = watch && watch.size ? watch : null
+    this.streaming = !!this.watch
+    for (const tab of this.tabs.values()) this.#syncScreencast(tab)
+  }
+
+  #watched(tab) {
+    if (!this.watch) return false
+    if (this.watch.has('*') || this.watch.has(tab.session)) return true
+    const s = this.sessions.get(tab.session)
+    return !!s && this.watch.has(s.label)
+  }
+
+  #syncScreencast(tab) {
+    const on = this.#watched(tab)
+    if (!!tab.screencasting === on) return
+    tab.screencasting = on
+    const method = on ? 'Page.startScreencast' : 'Page.stopScreencast'
+    const params = on ? SCREENCAST_PARAMS : {}
+    tab.transport.send(tab.ref, method, params).catch(() => {})
   }
 
   transport() {
@@ -140,7 +161,38 @@ export class Controller extends EventEmitter {
   }
 
   sessionInfo(s) {
-    return { ...s, tabs: s.tabIds.filter(id => this.tabs.has(id)).length }
+    return { ...s, isolated: !!s.browserContextId, tabs: s.tabIds.filter(id => this.tabs.has(id)).length }
+  }
+
+  async #disposeContext(session) {
+    const { browserContextId } = session
+    const t = this.contextTransports.get(session.id)
+    session.browserContextId = null
+    this.contextTransports.delete(session.id)
+    if (!browserContextId || !t?.disposeContext) return
+    await t.disposeContext(browserContextId).catch(() => {})
+  }
+
+  #forgetContextsOf(t) {
+    for (const [id, owner] of this.contextTransports) {
+      if (owner !== t) continue
+      this.contextTransports.delete(id)
+      const session = this.sessions.get(id)
+      if (session) session.browserContextId = null
+    }
+  }
+
+  async #contextFor(session, t) {
+    if (!this.isolateSessions || session.id === 'default' || !t.createContext) return undefined
+    if (session.browserContextId && this.contextTransports.get(session.id) === t) return session.browserContextId
+    try {
+      session.browserContextId = await t.createContext()
+      this.contextTransports.set(session.id, t)
+    } catch {
+      session.browserContextId = null
+      this.contextTransports.delete(session.id)
+    }
+    return session.browserContextId || undefined
   }
 
   async endSession(id) {
@@ -151,6 +203,7 @@ export class Controller extends EventEmitter {
       if (this.tabs.has(tabId)) await this.closeTab(tabId).catch(() => {})
     }
     session.endedAt = Date.now()
+    await this.#disposeContext(session)
     this.recorder.writeMeta(session)
     if (id !== 'default') this.sessions.delete(id)
     this.#state()
@@ -180,7 +233,8 @@ export class Controller extends EventEmitter {
     // Open on about:blank first so Network/Runtime/Emulation are enabled
     // BEFORE the real navigation — otherwise the page's initial API calls
     // escape the request capture.
-    const ref = await t.createTab('about:blank')
+    const browserContextId = await this.#contextFor(s, t)
+    const ref = await t.createTab('about:blank', browserContextId ? { browserContextId } : {})
     if (process.env.CANOPY_DEBUG) console.log('[openTab]', JSON.stringify(ref))
     const tab = {
       id: `t${++this.tabSeq}`,
@@ -233,7 +287,7 @@ export class Controller extends EventEmitter {
     await send('Runtime.addBinding', { name: '__canopyControl' }).catch(() => {})
     // Screencast only streams while someone is actually watching the cockpit —
     // it is the main constant CPU cost otherwise.
-    if (this.streaming) await send('Page.startScreencast', { format: 'jpeg', quality: 55, maxWidth: 800, maxHeight: 800, everyNthFrame: 4 }).catch(() => {})
+    this.#syncScreencast(tab)
     this.#applyBadge(tab).catch(() => {})
     // Screencast only streams while the tab is rendered; background tabs go
     // dark. Poll captureScreenshot (which works occluded) as a fallback feed.
@@ -251,7 +305,7 @@ export class Controller extends EventEmitter {
       if (Date.now() - tab.lastFrameAt < 2000) return
       // captureScreenshot costs real CPU per tab — full rate only while the
       // cockpit is actually open; sparse frames (8s) otherwise, for the replay.
-      const watching = this.viewers ? this.viewers() > 0 : true
+      const watching = this.#watched(tab)
       if (!watching && Date.now() - (tab.lastSavedAt || 0) < 8000) return
       try {
         const { data } = await tab.transport.send(tab.ref, 'Page.captureScreenshot', { format: 'jpeg', quality: 50 })
@@ -311,6 +365,7 @@ export class Controller extends EventEmitter {
       if (s.tabIds.some(tabId => this.tabs.has(tabId))) continue
       s.endedAt = now
       this.recorder.writeMeta(s)
+      await this.#disposeContext(s)
       this.sessions.delete(id)
     }
     if (reaped.length) this.#state()

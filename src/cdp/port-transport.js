@@ -58,8 +58,17 @@ export class PortTransport extends EventEmitter {
     })
   }
 
-  async createTab(url) {
-    const { targetId } = await this.#raw('Target.createTarget', { url, background: true })
+  async createContext() {
+    const { browserContextId } = await this.#raw('Target.createBrowserContext')
+    return browserContextId
+  }
+
+  async disposeContext(browserContextId) {
+    await this.#raw('Target.disposeBrowserContext', { browserContextId })
+  }
+
+  async createTab(url, { browserContextId } = {}) {
+    const { targetId } = await this.#raw('Target.createTarget', { url, background: true, ...(browserContextId ? { browserContextId } : {}) })
     const { sessionId } = await this.#raw('Target.attachToTarget', { targetId, flatten: true })
     return { sessionId, targetId }
   }

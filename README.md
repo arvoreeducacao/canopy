@@ -323,6 +323,11 @@ What changes when the bind leaves loopback:
 | `CANOPY_ALLOW_SCHEMES` | Extra URL schemes agents may navigate to, comma-separated. Default allows `http:`/`https:` only. |
 | `CANOPY_MCP_ORIGIN` | Origin the cockpit displays in its "connect an agent" command (useful when agents use a separate token-auth domain next to an SSO-protected cockpit domain). |
 | `CANOPY_CDP_URL` | Where the browser's CDP endpoint lives. Default `http://127.0.0.1:9222` (the in-container Chromium). |
+| `CANOPY_ISOLATE_SESSIONS` | `1` gives each named session its own browser context in the same Chromium, so cookies and storage of one client never leak into another. The persistent profile itself is not isolated, and the extension transport does not support it. |
+
+A cockpit opened at `/?session=<name>` dials `/ws?session=<name>`, and the daemon only screencasts
+(and only sends frames for) the tabs someone is actually watching — the other seats stay at the
+sparse replay rate.
 
 A practical two-domain setup: `canopy.example.com` → cockpit behind your SSO middleware
 (`CANOPY_SSO_HOST`), and `canopy-mcp.example.com` → token-only, for agents that can't do OAuth.
