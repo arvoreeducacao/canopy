@@ -53,7 +53,7 @@ function setup() {
   const pairing = secretFile('ext-secret', 16)
   console.log(`[setup] extension pairing code ${pairing.minted ? 'minted at' : 'already at'} ${pairing.path}`)
 
-  const mcpAdd = `claude mcp add --scope user --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}"`
+  const mcpAdd = `claude mcp add --scope user --transport http canopy http://127.0.0.1:${port}/mcp --header "Authorization: Bearer ${token}" --header 'X-Canopy-Session: \${HIVE_SEAT:-}'`
   try {
     execSync('claude mcp remove --scope user canopy', { stdio: 'ignore' })
   } catch {}

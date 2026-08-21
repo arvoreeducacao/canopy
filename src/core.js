@@ -27,6 +27,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 // Idle time is measured from the last action the agent took on the tab, not
 // from when it was opened: a tab being worked on for hours is not idle.
 const TAB_IDLE_MS = Number(process.env.CANOPY_TAB_IDLE_MS) || 30 * 60 * 1000
+const SESSION_HEADER = 'x-canopy-session'
+const UNEXPANDED_ENV_VAR = /^\$\{.*\}$/
+
+export function sessionFromHeaders(headers) {
+  const raw = headers[SESSION_HEADER]
+  const value = String(Array.isArray(raw) ? raw[0] : raw || '').trim().slice(0, 80)
+  return UNEXPANDED_ENV_VAR.test(value) ? '' : value
+}
+
 const MAX_TABS_PER_SESSION = Number(process.env.CANOPY_MAX_TABS_PER_SESSION) || 8
 
 // Keystroke-HUD glyphs (KeyCastr style), shown in-page when the agent types.
@@ -135,8 +144,9 @@ export class Controller extends EventEmitter {
   }
 
   async endSession(id) {
-    const session = this.sessions.get(id)
+    const session = this.findSession(id)
     if (!session) throw new Error(`session ${id} not found`)
+    id = session.id
     for (const tabId of [...session.tabIds]) {
       if (this.tabs.has(tabId)) await this.closeTab(tabId).catch(() => {})
     }
@@ -149,10 +159,13 @@ export class Controller extends EventEmitter {
 
   // ---- tabs ----
 
+  findSession(nameOrId) {
+    const name = String(nameOrId || '').trim() || 'default'
+    return this.sessions.get(name) || [...this.sessions.values()].find(s => s.label === name && !s.endedAt) || null
+  }
+
   #resolveSession(sessionId) {
-    const s = this.sessions.get(sessionId || 'default')
-    if (!s) throw new Error(`session ${sessionId} not found`)
-    return s
+    return this.findSession(sessionId) || this.startSession(String(sessionId).trim())
   }
 
   async openTab(url, { session, label, activate } = {}) {
@@ -266,8 +279,9 @@ export class Controller extends EventEmitter {
   }
 
   listTabs(session) {
+    const wanted = session ? this.findSession(session) : null
     return [...this.tabs.values()]
-      .filter(t => !session || t.session === session)
+      .filter(t => !session || t.session === (wanted ? wanted.id : session))
       .map(t => ({
         id: t.id, url: t.url, title: t.title, session: t.session, label: t.label,
         takenOver: t.takenOver, stopRequested: t.stopRequested, driving: t.driving,
@@ -290,7 +304,7 @@ export class Controller extends EventEmitter {
     }
     // Only sessions this sweep emptied. A session left empty by the agent
     // itself belongs to an agent that is alive and probably between tabs —
-    // deleting it would fail its next open with "session not found".
+    // deleting it would make its next open start a fresh session and recording.
     for (const id of bereaved) {
       const s = this.sessions.get(id)
       if (!s || id === 'default' || s.endedAt) continue

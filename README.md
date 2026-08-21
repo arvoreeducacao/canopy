@@ -161,6 +161,7 @@ makes watching safe, so control only moves when you actually ask for it.
 |---|---|
 | `browser_status` | Connected browser, sessions, open agent tabs, cockpit URL. Call it first. |
 | `session_start` / `session_end` | One named session per task — its own tab group and its own recording. |
+| *header* `X-Canopy-Session: <name>` | Sent on `/mcp` or REST, names the default session for that client — `browser_open` without `session` lands there, the session is created on first use, and the tab budget (`CANOPY_MAX_TABS_PER_SESSION`, 8) counts per session. Open the cockpit at `/?session=<name>` to watch only that client. |
 | `browser_open` | Open a background tab; returns its id plus a snapshot with `[ref]` numbers. |
 | `browser_tabs` | List the agent's tabs (never yours). |
 | `browser_navigate` | Navigate an existing tab. |

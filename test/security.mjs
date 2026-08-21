@@ -101,6 +101,15 @@ test('?token= is redirected away so it leaves the URL and history', async () => 
   assert.equal(res.headers.get('location'), '/')
 })
 
+test('the redirect drops only the token and keeps a ?session= filter', async () => {
+  const res = await fetch(`${BASE}/?token=${token}&session=seat-a`, { redirect: 'manual' })
+  assert.equal(res.status, 302)
+  assert.equal(res.headers.get('location'), '/?session=seat-a')
+  const plain = await fetch(`${BASE}/?session=seat-a`, { redirect: 'manual' })
+  assert.equal(plain.status, 200)
+  assert.match(plain.headers.get('set-cookie') || '', /canopy_token=/)
+})
+
 test('read-only feeds need a credential on loopback too', async () => {
   for (const route of ['/status', '/actions', '/sessions', '/tabs']) {
     assert.equal((await fetch(BASE + route)).status, 401, `${route} should be gated`)

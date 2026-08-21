@@ -210,7 +210,10 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
       if (!isPublic || authed(req, url)) {
         headers['Set-Cookie'] = `canopy_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000${isPublic ? '; Secure' : ''}`
         if (url.searchParams.get('token')) {
-          res.writeHead(302, { ...headers, Location: url.pathname })
+          const remaining = new URLSearchParams(url.searchParams)
+          remaining.delete('token')
+          const query = remaining.toString()
+          res.writeHead(302, { ...headers, Location: url.pathname + (query ? '?' + query : '') })
           return res.end()
         }
       }

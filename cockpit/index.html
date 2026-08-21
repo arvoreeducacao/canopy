@@ -202,6 +202,10 @@
   .tile.idle    .sig { color: var(--dim); }   .tile.idle    .sig .dot { background: var(--dim); }
   @keyframes blip { 50% { opacity: .25; } }
   .tid { font-size: 9.5px; color: var(--faint); letter-spacing: .08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
+  .sess { font-size: 9.5px; color: var(--amber); letter-spacing: .08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+  .sgroup { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; margin: 6px 0 -8px; }
+  .sgroup .sl { font-size: 12px; color: var(--amber); letter-spacing: .06em; }
+  .sgroup .cnt { font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; }
   .tele { margin-left: auto; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
 
   .view { position: relative; aspect-ratio: 16/10; background: #050607; overflow: hidden; }
@@ -441,6 +445,7 @@
     <div class="divider"></div>
     <div class="stat"><span class="k">actions logged</span><span class="v" id="deckActions">0</span></div>
     <div class="stat"><span class="k">status</span><span class="v" id="deckMode">connecting&hellip;</span></div>
+    <div class="stat" id="deckFilter" style="display:none"><span class="k">session</span><span class="v"><span id="deckFilterName"></span> <a href="#" id="deckFilterClear" title="Show every session">&times;</a></span></div>
     <div class="spacer"></div>
     <div class="stamp">
       <span class="k">daemon</span>
@@ -519,7 +524,22 @@ const esc = s => (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 // <img> loads and the WebSocket handshake alike. Nothing here ever touches the
 // token: not this script, not the URL, not the proxy's access log.
 // Cloud mode: arrive once at /?token=<token> and the daemon sets the cookie.
-const state = { tabs: [], frames: {}, replay: null, playing: null, actionCount: 0 }
+const state = { tabs: [], sessions: [], frames: {}, replay: null, playing: null, actionCount: 0 }
+const SESSION_FILTER = new URLSearchParams(location.search).get('session') || ''
+const sessionOf = t => state.sessions.find(s => s.id === t.session)
+const sessionLabel = t => { const s = sessionOf(t); return s ? s.label : t.session }
+const inFilter = t => !SESSION_FILTER || t.session === SESSION_FILTER || sessionLabel(t) === SESSION_FILTER
+const visibleTabs = () => state.tabs.filter(inFilter)
+function groupBySession(tabs) {
+  const by = new Map()
+  for (const t of tabs) {
+    if (!by.has(t.session)) by.set(t.session, [])
+    by.get(t.session).push(t)
+  }
+  return [...by.entries()]
+    .map(([id, ts]) => ({ id, label: sessionLabel(ts[0]), startedAt: (sessionOf(ts[0]) || {}).startedAt || 0, tabs: ts.sort((a, b) => a.createdAt - b.createdAt) }))
+    .sort((a, b) => (a.id === 'default') - (b.id === 'default') || a.startedAt - b.startedAt)
+}
 
 const ICONS = {
   hand: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 11V6a2 2 0 1 1 4 0v4V4.5a2 2 0 1 1 4 0V10m0-2.5a2 2 0 1 1 4 0V14a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.4L3.5 13a1.8 1.8 0 0 1 3-1.8L7 12"/></svg>',
@@ -566,8 +586,19 @@ const MCP_ORIGIN = window.CANOPY_MCP_ORIGIN || location.origin
 const MCP_TOKEN_HINT = /^https?:\/\/(127\.0\.0\.1|localhost)/.test(MCP_ORIGIN) ? '$(cat ~/.canopy/token)' : '<token>'
 const MCP_CMD = 'claude mcp add --transport http canopy ' + MCP_ORIGIN + '/mcp --header "Authorization: Bearer ' + MCP_TOKEN_HINT + '"'
 $('daemonHost').textContent = location.host
+if (SESSION_FILTER) {
+  $('deckFilter').style.display = ''
+  $('deckFilterName').textContent = SESSION_FILTER
+  $('deckFilterClear').href = location.pathname
+}
 
 function emptyState() {
+  if (SESSION_FILTER) {
+    return '<div class="empty">' +
+      '<h3>No tabs in session ' + esc(SESSION_FILTER) + '</h3>' +
+      '<p>Tabs this session opens will show up here. <a href="' + location.pathname + '">Show every session</a></p>' +
+      '</div>'
+  }
   return '<div class="empty">' +
     '<h3>No active agents</h3>' +
     '<p>Connect Claude Code and ask for anything that touches the web.</p>' +
@@ -602,6 +633,7 @@ function tile(t) {
     '<div class="tile-top">' +
       '<span class="sig"><span class="dot"></span>' + sigTxt + '</span>' +
       '<span class="tid">' + esc(String(t.id)) + '</span>' +
+      '<span class="sess" title="' + esc(String(t.session)) + '">' + esc(sessionLabel(t)) + '</span>' +
       '<span class="tele">' + fmtElapsed(t.createdAt || Date.now()) + ' · ' + (t.steps || 0) + ' steps</span>' +
     '</div>' +
     '<div class="view">' + img +
@@ -622,9 +654,15 @@ function tile(t) {
   '</article>'
 }
 
+function sessionGroup(g) {
+  return '<h2 class="sgroup"><span class="k">session</span><span class="sl">' + esc(g.label) + '</span><span class="cnt">' + g.tabs.length + '</span></h2>' +
+    g.tabs.map(tile).join('')
+}
+
 function render() {
-  $('grid').innerHTML = state.tabs.length ? state.tabs.map(tile).join('') : emptyState()
-  $('deckCount').innerHTML = state.tabs.length ? '<em>' + pad2(state.tabs.length) + '</em>' : pad2(0)
+  const shown = visibleTabs()
+  $('grid').innerHTML = shown.length ? groupBySession(shown).map(sessionGroup).join('') : emptyState()
+  $('deckCount').innerHTML = shown.length ? '<em>' + pad2(shown.length) + '</em>' : pad2(0)
 }
 
 /* ---------- action log ---------- */
@@ -638,6 +676,7 @@ function actionDetail(d) {
 }
 
 function pushAction(d, animate = true) {
+  if (SESSION_FILTER && !inFilter({ session: d.session })) return
   state.actionCount += 1
   $('evtCount').textContent = state.actionCount
   $('deckActions').textContent = state.actionCount
@@ -688,13 +727,14 @@ function connect() {
   ws.onmessage = e => {
     const msg = JSON.parse(e.data)
     if (msg.t === 'state') {
-      const prev = JSON.stringify(state.tabs)
+      const prev = JSON.stringify([state.tabs, state.sessions])
       state.tabs = msg.data.tabs
+      state.sessions = msg.data.sessions || []
       $('hudBrowser').textContent = msg.data.connected ? (msg.data.browser || msg.data.mode || '--') : '--'
       $('deckMode').textContent = msg.data.connected
         ? 'driving ' + (msg.data.browser || msg.data.mode)
         : 'awaiting browser…'
-      if (prev !== JSON.stringify(state.tabs)) render()
+      if (prev !== JSON.stringify([state.tabs, state.sessions])) render()
     }
     if (msg.t === 'frame') {
       state.frames[msg.tab] = msg.data

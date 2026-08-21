@@ -12,6 +12,7 @@ MCP server `canopy` at `http://127.0.0.1:4664/mcp` (add once: `claude mcp add --
 ## Golden rules
 
 1. **One session per task**: `session_start {label}` → open tabs with that session id → `session_end` when done. The label shows up in the user's cockpit and in the recorded replay — write it in the user's language, describing the task ("Cotando passagens GRU→LIS").
+   **Inside a hive seat (`$HIVE_SEAT` is set)** the seat name is your session: pass `session: "<value of $HIVE_SEAT>"` on every `browser_open` (the daemon creates the session under that name on first use — no `session_start` needed) and on `browser_tabs`. The user watches you at `/?session=<seat>`, so a tab opened under `default` is invisible to them. If `browser_status` already reports `defaultSession` equal to your seat, the daemon got it from a header and you may omit `session`.
 2. **Always pass `label`** on `browser_open` / `browser_act` — it is what the user sees in the tab overlay ("Agent in control · <label>") and the cockpit. Describe the *step*, not the tool, in the user's language.
 3. **Never activate tabs**. Tabs open in background by design; the user keeps working. If the user should look, tell them to open the cockpit.
 4. **Respect control**: if a tool errors with "user clicked STOP" or "user TOOK OVER", halt actions on that tab and check in with the user. Do not clear control yourself.
