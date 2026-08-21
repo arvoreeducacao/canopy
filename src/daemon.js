@@ -28,7 +28,7 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   const base = dataDir || path.join(os.homedir(), '.canopy')
   mkdirSync(base, { recursive: true })
   const recorder = new Recorder(path.join(base, 'sessions'))
-  const controller = new Controller(recorder, { restrictUrls: isPublic })
+  const controller = new Controller(recorder, { restrictUrls: isPublic, isolateSessions: process.env.CANOPY_ISOLATE_SESSIONS === '1' })
 
   // Shared-secret auth: any local process can reach 127.0.0.1, and /mcp + REST
   // can drive the user's logged-in browser. The token gates every route and
@@ -210,7 +210,10 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
       if (!isPublic || authed(req, url)) {
         headers['Set-Cookie'] = `canopy_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000${isPublic ? '; Secure' : ''}`
         if (url.searchParams.get('token')) {
-          res.writeHead(302, { ...headers, Location: url.pathname })
+          const remaining = new URLSearchParams(url.searchParams)
+          remaining.delete('token')
+          const query = remaining.toString()
+          res.writeHead(302, { ...headers, Location: url.pathname + (query ? '?' + query : '') })
           return res.end()
         }
       }
@@ -265,13 +268,23 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
     })
   }
 
-  const cockpitSocket = ws => {
-    controller.setStreaming(true)
+  const syncWatch = () => {
+    const watch = new Set()
+    for (const c of wssCockpit.clients) if (c.readyState === 1) watch.add(c.watch)
+    controller.setWatch(watch.size ? watch : null)
+  }
+  const watches = (ws, session) => {
+    if (ws.watch === '*' || ws.watch === session) return true
+    const s = controller.sessions.get(session)
+    return !!s && s.label === ws.watch
+  }
+
+  const cockpitSocket = (ws, req) => {
+    ws.watch = parseUrl(req)?.searchParams.get('session')?.trim() || '*'
+    syncWatch()
     ws.isAlive = true
     ws.on('pong', () => { ws.isAlive = true })
-    ws.on('close', () => {
-      if (wssCockpit.clients.size === 0) controller.setStreaming(false)
-    })
+    ws.on('close', syncWatch)
     ws.send(JSON.stringify({ t: 'state', data: controller.status() }))
     ws.on('message', async raw => {
       let msg = {}
@@ -317,10 +330,8 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
     socket.destroy()
   })
 
-  controller.viewers = () => wssCockpit.clients.size
-
   // A cockpit tab that dies without a FIN (Arc archives tabs in place) would
-  // otherwise hold clients.size above zero and keep every tab screencasting
+  // otherwise hold clients.size above zero and keep its tabs screencasting
   // at full rate forever — ping each client and drop the ones that go quiet.
   const cockpitSweep = setInterval(() => {
     for (const c of wssCockpit.clients) {
@@ -328,7 +339,7 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
       c.isAlive = false
       try { c.ping() } catch {}
     }
-    if (wssCockpit.clients.size === 0) controller.setStreaming(false)
+    syncWatch()
   }, 30000)
   cockpitSweep.unref?.()
 
@@ -340,15 +351,15 @@ export async function startDaemon({ port = 4664, bind = '127.0.0.1', publicHost 
   }, 60000)
   idleSweep.unref?.()
 
-  const broadcast = msg => {
+  const broadcast = (msg, wants = () => true) => {
     const raw = JSON.stringify(msg)
     for (const c of wssCockpit.clients) {
-      if (c.readyState === 1 && c.bufferedAmount < 4 * 1024 * 1024) c.send(raw)
+      if (c.readyState === 1 && c.bufferedAmount < 4 * 1024 * 1024 && wants(c)) c.send(raw)
     }
   }
   controller.on('state', data => broadcast({ t: 'state', data }))
   controller.on('action', data => broadcast({ t: 'action', data }))
-  controller.on('frame', ({ tab, session, data }) => broadcast({ t: 'frame', tab, session, data }))
+  controller.on('frame', ({ tab, session, data }) => broadcast({ t: 'frame', tab, session, data }, c => watches(c, session)))
 
   await new Promise((resolve, reject) => {
     server.once('error', reject)

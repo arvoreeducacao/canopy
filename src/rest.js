@@ -20,9 +20,12 @@ function readBody(req) {
   })
 }
 
+import { sessionFromHeaders } from './core.js'
+
 export function restHandler(controller, recorder) {
   return async (req, res, url) => {
     const parts = url.pathname.split('/').filter(Boolean)
+    const defaultSession = sessionFromHeaders(req.headers) || undefined
     try {
       if (req.method === 'GET' && parts[0] === 'status') {
         return json(res, 200, controller.status())
@@ -44,7 +47,7 @@ export function restHandler(controller, recorder) {
         }
         if (req.method === 'POST' && !parts[1]) {
           const body = await readBody(req)
-          return json(res, 201, controller.startSession(body.label || 'sessão'))
+          return json(res, 201, body.label ? controller.startSession(body.label) : controller.findSession(defaultSession) || controller.startSession(defaultSession || 'sessão'))
         }
         if (req.method === 'DELETE' && parts[1]) {
           return json(res, 200, await controller.endSession(parts[1]))
@@ -65,11 +68,11 @@ export function restHandler(controller, recorder) {
       }
 
       if (parts[0] === 'tabs' && !parts[1]) {
-        if (req.method === 'GET') return json(res, 200, controller.listTabs(url.searchParams.get('session') || undefined))
+        if (req.method === 'GET') return json(res, 200, controller.listTabs(url.searchParams.get('session') || defaultSession))
         if (req.method === 'POST') {
           const body = await readBody(req)
           if (!body.url) return json(res, 400, { error: 'url required' })
-          const tab = await controller.openTab(body.url, body)
+          const tab = await controller.openTab(body.url, { ...body, session: body.session || defaultSession })
           return json(res, 201, { id: tab.id, url: tab.url, session: tab.session })
         }
       }

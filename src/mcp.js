@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
+import { sessionFromHeaders } from './core.js'
 
 // MCP server over streamable HTTP (stateless): each request gets a fresh
 // server wired to the shared controller. Connect from Claude Code with:
@@ -13,14 +14,14 @@ const PRESETS = {
   wide: { width: 1920, height: 1080 }
 }
 
-function buildServer(controller) {
+function buildServer(controller, defaultSession) {
   const server = new McpServer({ name: 'canopy', version: '0.1.0' })
   const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] })
 
   server.registerTool('browser_status', {
     description: 'State of the Canopy bridge: connected browser, sessions, open agent tabs, cockpit URL. Call this first.',
     inputSchema: {}
-  }, async () => text({ ...controller.status(), cockpit: 'http://127.0.0.1:4664/' }))
+  }, async () => text({ ...controller.status(), defaultSession: defaultSession || 'default', cockpit: 'http://127.0.0.1:4664/' }))
 
   server.registerTool('session_start', {
     description: 'Start a named agent session (its own group of tabs, recorded for replay). Use one session per task.',
@@ -36,11 +37,11 @@ function buildServer(controller) {
     description: 'Open a new tab (background — never steals the user focus) and return its id plus a snapshot of interactive elements with [ref] numbers.',
     inputSchema: {
       url: z.string(),
-      session: z.string().optional().describe('Session id from session_start; defaults to "default"'),
+      session: z.string().optional().describe('Session id or label; defaults to the X-Canopy-Session header, then "default". An unknown name creates the session'),
       label: z.string().optional().describe('What you are doing, shown to the user in the tab overlay')
     }
   }, async ({ url, session, label }) => {
-    const tab = await controller.openTab(url, { session, label })
+    const tab = await controller.openTab(url, { session: session || defaultSession, label })
     await controller.waitFor(tab.id, { until: 'load', timeoutMs: 12000 }).catch(() => {})
     let snap = await controller.snapshot(tab.id)
     if (snap.snap.elements.length < 3 && !tab.navError) {
@@ -61,7 +62,7 @@ function buildServer(controller) {
   server.registerTool('browser_tabs', {
     description: 'List agent tabs (id, url, title, session, control state).',
     inputSchema: { session: z.string().optional() }
-  }, async ({ session }) => text(controller.listTabs(session)))
+  }, async ({ session }) => text(controller.listTabs(session || defaultSession)))
 
   server.registerTool('browser_navigate', {
     description: 'Navigate an existing tab to a URL.',
@@ -182,7 +183,7 @@ function buildServer(controller) {
 
 export function mcpHandler(controller) {
   return async (req, res) => {
-    const server = buildServer(controller)
+    const server = buildServer(controller, sessionFromHeaders(req.headers) || undefined)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     res.on('close', () => {
       transport.close()
