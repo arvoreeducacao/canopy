@@ -79,21 +79,63 @@ export function humanDrivingJs(driving) {
   return `window.__canopyHumanDriving = ${driving ? 'true' : 'false'}`
 }
 
-// document.activeElement stops at the iframe element, so on a page that hosts
-// its form in a subframe it always answers IFRAME and never the field the text
-// actually went into. Following it down is also how a keystroke swallowed by an
-// autofill menu shows up: the menu is another extension's frame, so the walk
-// throws and the answer comes back empty instead of confidently wrong.
-export const DEEP_ACTIVE_VALUE = `(() => {
-  const find = win => {
+// document.activeElement stops at the boundary of whatever hosts the field. On
+// a page that keeps its form in a subframe it answers IFRAME; on a page built
+// out of custom elements it answers the host and never the <input> inside its
+// shadow root. Both are the ordinary case, not the exotic one — a server-driven
+// ERP screen is a tree of custom elements whose real inputs all live in shadow
+// roots — so the walk goes down both kinds of boundary. Stopping early is how a
+// fill reads back the wrong element and reports text that was never typed.
+const DEEP_ACTIVE_FN = `
+  const deepActive = () => {
     let el = null
-    try { el = win.document.activeElement } catch (e) { return null }
-    if (el && el.tagName === 'IFRAME') {
-      try { return find(el.contentWindow) } catch (e) { return null }
+    try { el = document.activeElement } catch (e) { return null }
+    for (let hops = 0; el && hops < 20; hops++) {
+      if (el.tagName === 'IFRAME') {
+        let inner = null
+        try { inner = el.contentDocument && el.contentDocument.activeElement } catch (e) { return null }
+        if (!inner || inner === el) return el
+        el = inner
+        continue
+      }
+      let shadowed = null
+      try { shadowed = el.shadowRoot && el.shadowRoot.activeElement } catch (e) { shadowed = null }
+      if (!shadowed || shadowed === el) return el
+      el = shadowed
     }
     return el
   }
-  const el = find(window)
+`
+
+// Following focus down is also how a keystroke swallowed by an autofill menu
+// shows up: the menu is another extension's frame, so the walk throws and the
+// answer comes back empty instead of confidently wrong.
+export const DEEP_ACTIVE_VALUE = `(() => {${DEEP_ACTIVE_FN}
+  const el = deepActive()
   if (!el) return null
   return { tag: el.tagName, value: typeof el.value === 'string' ? el.value : null }
+})()`
+
+// Selecting what the field already holds is what makes a fill REPLACE instead
+// of append. A triple click used to do it, and it also delivered a dblclick to
+// the page — which a widget is free to read as its own gesture and answer by
+// moving focus somewhere else entirely. Everything typed afterwards then goes
+// nowhere. Selecting from script keeps the replace and delivers no gesture at
+// all, and it reaches into subframes and shadow roots, where a top-document
+// activeElement.select() never could.
+export const DEEP_ACTIVE_SELECT = `(() => {${DEEP_ACTIVE_FN}
+  const el = deepActive()
+  if (!el) return null
+  try {
+    if (typeof el.select === 'function') el.select()
+    else if (el.isContentEditable) {
+      const doc = el.ownerDocument
+      const range = doc.createRange()
+      range.selectNodeContents(el)
+      const sel = doc.defaultView.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+  } catch (e) {}
+  return el.tagName
 })()`

@@ -5,7 +5,54 @@
 
 const SEL = 'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="radio"], [role="menuitem"], [role="option"], [role="combobox"], [role="switch"], [role="searchbox"], [role="textbox"], [contenteditable="true"], [onclick], [tabindex]:not([tabindex="-1"])'
 
-export const SNAPSHOT_JS = `(() => {
+
+// A page built out of custom elements keeps its real controls inside shadow
+// roots, and every query that starts at `document` stops at the host. On such a
+// page the snapshot comes back empty, so there are no refs to act on and the
+// only way left is coordinates read off a screenshot; worse, the change probe
+// sees no controls and no text, so every verdict reads NO CHANGE DETECTED
+// however much of the screen moved. That is not a cosmetic wrong answer: it
+// teaches the agent to distrust the one signal that would have told it the
+// screen had already moved on, and to screenshot and deliberate after every
+// step instead — which is how a dialog with a short life is missed. These walk
+// through the boundary. The budget is there because the walk is the hot path of
+// every action, twice.
+export const DEEP_DOM_JS = `
+  const deepEls = (root, budget) => {
+    const out = []
+    const queue = [root]
+    while (queue.length && out.length < budget) {
+      const scope = queue.shift()
+      let els
+      try { els = scope.querySelectorAll('*') } catch (e) { continue }
+      for (const el of els) {
+        if (out.length >= budget) break
+        out.push(el)
+        if (el.shadowRoot) queue.push(el.shadowRoot)
+      }
+    }
+    return out
+  }
+  const ALL = deepEls(document, 20000)
+  const deepMatching = sel => {
+    const out = []
+    for (const el of ALL) { try { if (el.matches(sel)) out.push(el) } catch (e) {} }
+    return out
+  }
+  const deepFind = sel => {
+    for (const el of ALL) { try { if (el.matches(sel)) return el } catch (e) {} }
+    return null
+  }
+  const deepText = () => {
+    let s = document.body ? document.body.innerText : ''
+    for (const el of ALL) {
+      if (el.shadowRoot) { try { s += el.shadowRoot.textContent || '' } catch (e) {} }
+    }
+    return s
+  }
+`
+
+export const SNAPSHOT_JS = `(() => {${DEEP_DOM_JS}
   const SEL = ${JSON.stringify(SEL)}
   const seen = new Set()
   const els = []
@@ -44,7 +91,7 @@ export const SNAPSHOT_JS = `(() => {
   }
   let n = 0
   const pill = document.getElementById('__canopy_pill')
-  for (const el of document.querySelectorAll(SEL)) {
+  for (const el of deepMatching(SEL)) {
     if (seen.has(el)) continue
     seen.add(el)
     // Our own Take over / Stop buttons are not part of the page — listing them
@@ -124,8 +171,8 @@ const HIT_JS = `
   }`
 
 // Center of a ref's element in viewport coords, scrolling it into view first.
-export const refCenterJs = ref => `(() => {
-  const el = document.querySelector('[data-canopy-ref="${Number(ref)}"]')
+export const refCenterJs = ref => `(() => {${DEEP_DOM_JS}
+  const el = deepFind('[data-canopy-ref="${Number(ref)}"]')
   if (!el) return JSON.stringify({ error: 'ref ${Number(ref)} not found — take a new snapshot' })
   ${HIT_JS}
   const r0 = el.getBoundingClientRect()
@@ -133,8 +180,8 @@ export const refCenterJs = ref => `(() => {
   return JSON.stringify(probe(el))
 })()`
 
-export const focusRefJs = ref => `(() => {
-  const el = document.querySelector('[data-canopy-ref="${Number(ref)}"]')
+export const focusRefJs = ref => `(() => {${DEEP_DOM_JS}
+  const el = deepFind('[data-canopy-ref="${Number(ref)}"]')
   if (!el) return JSON.stringify({ error: 'ref ${Number(ref)} not found — take a new snapshot' })
   ${HIT_JS}
   el.scrollIntoView({ block: 'center', behavior: 'instant' })
@@ -155,15 +202,15 @@ export const focusRefJs = ref => `(() => {
 // Fingerprint used before/after an action to answer "did the page react?".
 // The text is hashed, not just measured: swapping "nada ainda" for "salvo" is
 // a real reaction that a length comparison alone would call "no change".
-export const PROBE_JS = `(() => {
+export const PROBE_JS = `(() => {${DEEP_DOM_JS}
   const a = document.activeElement
-  const body = document.body ? document.body.innerText : ''
+  const body = deepText()
   let sig = 0
   for (let i = 0; i < body.length; i++) sig = (Math.imul(sig, 31) + body.charCodeAt(i)) | 0
   // A modal that opens by flipping a class changes no text and no nodes — the
   // only thing that moves is how many controls are actually actionable.
   let acts = 0
-  for (const el of document.querySelectorAll(${JSON.stringify(SEL)})) {
+  for (const el of deepMatching(${JSON.stringify(SEL)})) {
     if (el.closest('#__canopy_pill, [aria-hidden="true"], [inert], [hidden]')) continue
     if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })) continue
     const r = el.getBoundingClientRect()
@@ -175,8 +222,8 @@ export const PROBE_JS = `(() => {
     title: document.title.replace(/^AI \\u00B7 /, ''),
     len: body.length,
     sig,
-    nodes: document.body ? document.body.getElementsByTagName('*').length : 0,
-    dialogs: document.querySelectorAll('dialog[open], [role="dialog"]:not([aria-hidden="true"]), [role="alertdialog"]:not([aria-hidden="true"])').length,
+    nodes: ALL.length,
+    dialogs: deepMatching('dialog[open], [role="dialog"]:not([aria-hidden="true"]), [role="alertdialog"]:not([aria-hidden="true"])').length,
     active: a && a !== document.body ? a.tagName.toLowerCase() + (a.id ? '#' + a.id : '') : null
   })
 })()`
