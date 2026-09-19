@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { OVERLAY_SETUP, BADGE_ON, BADGE_OFF, cursorCall } from './overlay.js'
 import { SNAPSHOT_JS, PROBE_JS, refCenterJs, focusRefJs, formatSnapshot, formatProblems } from './snapshot.js'
+import { FRAME_GUARD, humanDrivingJs, DEEP_ACTIVE_VALUE } from './frame-guard.js'
 
 const KEYS = {
   Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
@@ -84,6 +85,23 @@ export class Controller extends EventEmitter {
         await t.closeTab({ extTabId }).then(() => { closed += 1 }).catch(() => {})
       }
       if (closed) console.log(`[canopy] closed ${closed} orphaned agent tab(s)`)
+    })
+    // A re-attached session is a blank one: re-arm the tab before the caller's
+    // retried command lands, or the tab answers but stops reporting.
+    t.on('reattached', ({ extTabId }) => {
+      const tab = [...this.tabs.values()].find(x => x.transport === t && x.ref.extTabId === extTabId)
+      if (tab) this.#armTab(tab).catch(() => {})
+    })
+    // Chrome detaches the debugger when a password manager opens an extension
+    // frame in the page. The in-page guard removes it within a moment, so take
+    // the tab back without waiting for the next command to fail on the user.
+    t.on('debugger.detached', ({ tabId }) => {
+      const tab = [...this.tabs.values()].find(x => x.transport === t && x.ref.extTabId === tabId)
+      if (!tab || !t.attach) return
+      setTimeout(() => {
+        if (!this.tabs.has(tab.id)) return
+        t.attach(tab.ref).then(() => this.#armTab(tab)).catch(() => {})
+      }, 600).unref?.()
     })
     t.on('connected', () => clearTimeout(t._dropTimer))
     t.on('disconnected', () => {
@@ -268,27 +286,7 @@ export class Controller extends EventEmitter {
   }
 
   async #prepareTab(tab) {
-    const send = (m, p) => tab.transport.send(tab.ref, m, p)
-    await send('Page.enable').catch(() => {})
-    await send('Runtime.enable').catch(() => {})
-    // Background tabs drop keyboard input unless the renderer believes it is
-    // focused (same trick Puppeteer uses) — without this, key events are flaky.
-    await send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
-    await send('Network.enable', { maxPostDataSize: 32768 }).catch(() => {})
-    // Console + browser log domains: a page that fails silently (swallowed
-    // catch, dead API host, 401 on login) looks identical to one that worked
-    // from the DOM alone. These are what make the difference visible.
-    await send('Log.enable').catch(() => {})
-    // Learn the top frame's id before the first navigation, so the very first
-    // request already knows whether it is the page or something the page embeds.
-    await send('Page.getFrameTree')
-      .then(r => { tab.mainFrameId = r?.frameTree?.frame?.id })
-      .catch(() => {})
-    await send('Runtime.addBinding', { name: '__canopyControl' }).catch(() => {})
-    // Screencast only streams while someone is actually watching the cockpit —
-    // it is the main constant CPU cost otherwise.
-    this.#syncScreencast(tab)
-    this.#applyBadge(tab).catch(() => {})
+    await this.#armTab(tab)
     // Screencast only streams while the tab is rendered; background tabs go
     // dark. Poll captureScreenshot (which works occluded) as a fallback feed.
     tab.lastFrameAt = 0
@@ -316,6 +314,42 @@ export class Controller extends EventEmitter {
       } catch {}
     }, 1500)
     tab.poller.unref?.()
+  }
+
+  // Everything a debugger session needs to be useful. Called again after a
+  // forced detach (see extension-transport): a re-attached session comes back
+  // with every domain off and every injected script gone.
+  async #armTab(tab) {
+    const send = (m, p) => tab.transport.send(tab.ref, m, p)
+    await send('Page.enable').catch(() => {})
+    await send('Runtime.enable').catch(() => {})
+    // Background tabs drop keyboard input unless the renderer believes it is
+    // focused (same trick Puppeteer uses) — without this, key events are flaky.
+    await send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
+    await send('Network.enable', { maxPostDataSize: 32768 }).catch(() => {})
+    // Console + browser log domains: a page that fails silently (swallowed
+    // catch, dead API host, 401 on login) looks identical to one that worked
+    // from the DOM alone. These are what make the difference visible.
+    await send('Log.enable').catch(() => {})
+    // Learn the top frame's id before the first navigation, so the very first
+    // request already knows whether it is the page or something the page embeds.
+    await send('Page.getFrameTree')
+      .then(r => { tab.mainFrameId = r?.frameTree?.frame?.id })
+      .catch(() => {})
+    await send('Runtime.addBinding', { name: '__canopyControl' }).catch(() => {})
+    // Screencast only streams while someone is actually watching the cockpit —
+    // it is the main constant CPU cost otherwise. A re-armed tab lost the
+    // screencast along with the old debugger session, so forget what we thought
+    // was streaming before asking for it again.
+    tab.screencasting = false
+    this.#syncScreencast(tab)
+    // Registered for every future document (subframes included) and run once
+    // for the one already loaded — a tab that is mid-login when the daemon
+    // re-arms it has the autofill menu on screen right now.
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: FRAME_GUARD }).catch(() => {})
+    await send('Runtime.evaluate', { expression: FRAME_GUARD, returnByValue: true }).catch(() => {})
+    await send('Runtime.evaluate', { expression: humanDrivingJs(!!tab.takenOver), returnByValue: true }).catch(() => {})
+    this.#applyBadge(tab).catch(() => {})
   }
 
   async #applyBadge(tab) {
@@ -414,6 +448,9 @@ export class Controller extends EventEmitter {
     const tab = this.getTab(id)
     if (takenOver !== undefined) tab.takenOver = !!takenOver
     if (stopRequested !== undefined) tab.stopRequested = !!stopRequested
+    // Handing the tab to a human hands back the password manager too: the
+    // autofill menu is exactly what they took the tab over to use.
+    this.eval(id, humanDrivingJs(!!tab.takenOver), { silent: true }).catch(() => {})
     if (tab.takenOver || tab.stopRequested) {
       this.eval(id, BADGE_OFF, { silent: true }).catch(() => {})
       // Handing the tab back means handing it back intact. An emulated viewport
@@ -585,9 +622,47 @@ export class Controller extends EventEmitter {
       await this.#cursor(tab, 'key', [JSON.stringify('⌨ ' + (text.length > 22 ? text.slice(0, 22) + '…' : text))])
       await sleep(300)
       await allow(true)
+      // A ref focuses (and selects) the element itself; bare coordinates carry
+      // no element, so without a real click the text lands wherever the page
+      // last put focus — on a two-field login that is the field above, which
+      // silently eats both values. The triple click focuses and selects the
+      // field's content in one gesture, and works inside subframes, where a
+      // top-document activeElement.select() cannot reach.
+      const focusPoint = async () => {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none' })
+        for (let i = 1; i <= 3; i++) {
+          await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: i })
+          await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: i })
+        }
+        await sleep(120)
+      }
+      const byPoint = ref === undefined || ref === null
+      if (byPoint) await focusPoint()
       await send('Input.insertText', { text })
+      // An autofill menu that opened on focus eats the keystrokes and leaves the
+      // field empty, and insertText reports success either way. Read back what
+      // the focused field actually holds — anything else is a tool that lies
+      // about having typed a password.
+      const landed = async () => {
+        const seen = await this.eval(tab.id, DEEP_ACTIVE_VALUE, { silent: true }).catch(() => null)
+        if (!seen || typeof seen.value !== 'string') return null
+        return seen.value.includes(text)
+      }
+      let ok = await landed()
+      if (ok === false && byPoint) {
+        await focusPoint()
+        await send('Input.insertText', { text })
+        ok = await landed()
+      }
       await allow(false)
       this.#log(tab, 'fill', { ref, chars: text.length, label })
+      if (ok === false) {
+        throw new Error(
+          `the text did not reach the field at (${p.x},${p.y}) — it was typed but the field is still without it. ` +
+          'A password manager autofill menu opening on focus does this: it takes the keystrokes and leaves the field empty. ' +
+          'Take a screenshot to see the state, then try again.'
+        )
+      }
       return settle({ filled: true, on: p.desc })
     }
 
