@@ -1,5 +1,18 @@
 import { EventEmitter } from 'node:events'
 
+// Chrome walks the whole frame tree before letting an extension speak
+// chrome.debugger to a tab, and refuses while any frame belongs to a *different*
+// extension. A password manager's autofill menu is exactly that: the moment it
+// opens, the live session is detached and every later command fails. The page
+// guard (src/frame-guard.js) takes the menu back out from inside the page, so
+// the block clears on its own within a moment — these are the errors worth
+// waiting out and re-attaching for, instead of letting the tab die silently.
+const RECOVERABLE = /not attached to the tab|Debugger is not attached|Cannot access a chrome-extension|Detached while handling command|target is not attached/i
+const REATTACH_TRIES = 8
+const REATTACH_WAIT_MS = 250
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
 // CDP bridged through the Canopy extension (chrome.debugger). Works in Arc
 // and any Chromium browser without --remote-debugging-port. The extension keeps
 // a WebSocket open to the daemon; commands flow daemon -> extension, events and
@@ -105,8 +118,41 @@ export class ExtensionTransport extends EventEmitter {
     return { extTabId: tabId }
   }
 
-  send(ref, method, params = {}) {
-    return this.#op('cdp', { tabId: ref.extTabId, method, params })
+  attach(ref) {
+    return this.#op('attach', { tabId: ref.extTabId })
+  }
+
+  async send(ref, method, params = {}) {
+    try {
+      return await this.#op('cdp', { tabId: ref.extTabId, method, params })
+    } catch (err) {
+      if (!RECOVERABLE.test(String(err && err.message || err))) throw err
+      await this.#reattach(ref)
+      return this.#op('cdp', { tabId: ref.extTabId, method, params })
+    }
+  }
+
+  async #reattach(ref) {
+    let last = null
+    for (let attempt = 0; attempt < REATTACH_TRIES; attempt++) {
+      try {
+        await this.attach(ref)
+        // A fresh debugger session starts with every domain disabled, so the
+        // caller has to re-enable what the tab was set up with — otherwise the
+        // command succeeds and the tab goes deaf (no console, no network, no
+        // screencast) for the rest of its life.
+        this.emit('reattached', { extTabId: ref.extTabId })
+        return
+      } catch (err) {
+        last = err
+        await sleep(REATTACH_WAIT_MS)
+      }
+    }
+    throw new Error(
+      `the browser detached the debugger from this tab and will not let it back in: ${String(last && last.message || last)}. ` +
+      'This is what a password manager autofill menu does — Chrome blocks debugging the whole tab while an extension frame is open in it. ' +
+      'Dismiss the menu in the tab (Escape, or click elsewhere) and try again; if it keeps happening, open a new tab and avoid focusing the field the menu attaches to.'
+    )
   }
 
   async closeTab(ref) {
