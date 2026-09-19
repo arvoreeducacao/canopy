@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { OVERLAY_SETUP, BADGE_ON, BADGE_OFF, cursorCall } from './overlay.js'
-import { SNAPSHOT_JS, PROBE_JS, refCenterJs, focusRefJs, formatSnapshot, formatProblems } from './snapshot.js'
-import { FRAME_GUARD, humanDrivingJs, DEEP_ACTIVE_VALUE } from './frame-guard.js'
+import { SNAPSHOT_JS, PROBE_JS, DEEP_DOM_JS, refCenterJs, focusRefJs, formatSnapshot, formatProblems } from './snapshot.js'
+import { FRAME_GUARD, humanDrivingJs, DEEP_ACTIVE_VALUE, DEEP_ACTIVE_SELECT } from './frame-guard.js'
 
 const KEYS = {
   Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
@@ -625,16 +625,31 @@ export class Controller extends EventEmitter {
       // A ref focuses (and selects) the element itself; bare coordinates carry
       // no element, so without a real click the text lands wherever the page
       // last put focus — on a two-field login that is the field above, which
-      // silently eats both values. The triple click focuses and selects the
-      // field's content in one gesture, and works inside subframes, where a
-      // top-document activeElement.select() cannot reach.
+      // silently eats both values. ONE click is the whole gesture: it is what
+      // moves focus, and it is the only one the page cannot misread. The extra
+      // two of a triple click arrive as a dblclick, which a widget is entitled
+      // to treat as its own gesture and answer by moving focus off the field —
+      // and then every character goes into nothing while the tool reports a
+      // fill. Selecting the old content, which is what makes this replace
+      // rather than append, is done from script instead.
       const focusPoint = async () => {
         await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none' })
-        for (let i = 1; i <= 3; i++) {
-          await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: i })
-          await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: i })
-        }
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: 1 })
         await sleep(120)
+        await this.eval(tab.id, DEEP_ACTIVE_SELECT, { silent: true }).catch(() => {})
+      }
+      // insertText is one atomic edit: cheap, and right for an ordinary input.
+      // A field that is only a view onto state held somewhere else — a server
+      // -driven ERP widget, an editor that rebuilds its own DOM — can ignore it
+      // entirely, because it never sees the keys it actually listens for. That
+      // is what typing key by key is for; it is slower, so it is the fallback
+      // and not the rule.
+      const typeByKeys = async () => {
+        for (const ch of text) {
+          await send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, unmodifiedText: ch, key: ch })
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch })
+        }
       }
       const byPoint = ref === undefined || ref === null
       if (byPoint) await focusPoint()
@@ -649,9 +664,9 @@ export class Controller extends EventEmitter {
         return seen.value.includes(text)
       }
       let ok = await landed()
-      if (ok === false && byPoint) {
-        await focusPoint()
-        await send('Input.insertText', { text })
+      if (ok === false) {
+        if (byPoint) await focusPoint()
+        await typeByKeys()
         ok = await landed()
       }
       await allow(false)
@@ -663,7 +678,17 @@ export class Controller extends EventEmitter {
           'Take a screenshot to see the state, then try again.'
         )
       }
-      return settle({ filled: true, on: p.desc })
+      // Reporting a fill that was never read back is how a tool ends up lying
+      // about having typed a password. Say so instead of claiming it worked.
+      if (ok === null) {
+        return settle({
+          filled: true,
+          on: p.desc,
+          verified: false,
+          note: 'the focused element does not expose a value to script, so this fill could not be read back — confirm with a screenshot before moving on'
+        })
+      }
+      return settle({ filled: true, on: p.desc, verified: true })
     }
 
     if (action === 'press') {
@@ -773,10 +798,15 @@ export class Controller extends EventEmitter {
     // predicates are ours and stay usable while the user holds the tab.
     if (until === 'js') this.#guard(tab)
     const deadline = Date.now() + Math.min(timeoutMs, 60000)
+    // Both built-in predicates look through shadow roots, for the same reason
+    // the snapshot does. A wait that cannot see the thing it is waiting for does
+    // not fail fast — it burns the whole timeout while the page sits there with
+    // the answer on screen, and a dialog that only lives a few seconds is gone
+    // by the time the caller is told nothing happened.
     const checks = {
       load: `document.readyState === 'complete' && location.href !== 'about:blank'`,
-      selector: `!!document.querySelector(${JSON.stringify(value || 'body')})`,
-      text: `(document.body ? document.body.innerText : '').includes(${JSON.stringify(value || '')})`,
+      selector: `(() => {${DEEP_DOM_JS} return !!deepFind(${JSON.stringify(value || 'body')})})()`,
+      text: `(() => {${DEEP_DOM_JS} return deepText().includes(${JSON.stringify(value || '')})})()`,
       js: value || 'true'
     }
     const expr = checks[until]
