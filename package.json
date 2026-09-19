@@ -1,13 +1,13 @@
 {
   "name": "@arvoretech/canopy",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "publishConfig": {
     "access": "public"
   },
-  "description": "Canopy — watch and drive your existing browser (Arc/Chrome) with AI agents: MCP + CDP daemon, live cockpit with replay, visible AI cursor.",
+  "description": "Canopy \u2014 watch and drive your existing browser (Arc/Chrome) with AI agents: MCP + CDP daemon, live cockpit with replay, visible AI cursor.",
   "type": "module",
   "license": "MIT",
-  "author": "Árvore Educação",
+  "author": "\u00c1rvore Educa\u00e7\u00e3o",
   "homepage": "https://github.com/arvoreeducacao/canopy#readme",
   "repository": {
     "type": "git",
