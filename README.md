@@ -383,10 +383,11 @@ What the design gives you:
   instructed *by that page*. Nothing here prevents that. The live cockpit and the replay are the
   mitigation — watch what happens, and use a dedicated profile for anything sensitive.
 
-The extension requests `debugger` and `<all_urls>`, which is the maximum a Chrome extension can
-ask for. That is inherent to the goal — driving arbitrary pages in a browser that exposes no CDP
-port — and it is why the extension is loaded unpacked from source you can read (~200 lines)
-rather than shipped through the Web Store.
+The extension requests `debugger`, the most powerful permission a Chrome extension can ask for:
+it can read and control any page it attaches to. That is inherent to the goal — driving arbitrary
+pages in a browser that exposes no CDP port. The extension holds itself to the tabs it opened for
+an agent: it refuses to attach to, drive, group, focus or close any other tab, whatever the daemon
+asks.
 
 [Cloud mode](#cloud-mode) is a different risk posture and worth naming as such: one static token
 with no rotation or per-user identity, and a container whose Chromium runs `--no-sandbox`, sitting
