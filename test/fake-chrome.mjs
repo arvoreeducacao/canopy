@@ -31,13 +31,13 @@ export function fakePort(name) {
   return port
 }
 
-export function fakeChrome() {
+export function fakeChrome({ nativeHost = null } = {}) {
   let nextTabId = 100
   const tabs = new Map()
   const sessionStore = {}
   const localStore = {}
   const debuggee = new Set()
-  const calls = { attach: [], sendCommand: [], offscreen: 0 }
+  const calls = { attach: [], sendCommand: [], offscreen: 0, closedOffscreen: 0, connectNative: [], lastErrorChecked: [], optionsOpened: 0 }
   const faults = { sessionGet: 0 }
   let offscreenOpen = false
 
@@ -105,17 +105,41 @@ export function fakeChrome() {
       createDocument: async () => {
         calls.offscreen++
         offscreenOpen = true
+      },
+      closeDocument: async () => {
+        calls.closedOffscreen++
+        offscreenOpen = false
       }
     },
     alarms: { create: () => {}, onAlarm: event() },
     runtime: {
+      lastError: undefined,
       onConnect: event(),
       onMessage: event(),
       onStartup: event(),
       onInstalled: event(),
       sendMessage: async () => {},
-      openOptionsPage: () => {},
-      getContexts: async () => (offscreenOpen ? [{}] : [])
+      openOptionsPage: () => { calls.optionsOpened++ },
+      getContexts: async () => (offscreenOpen ? [{}] : []),
+      connectNative: name => {
+        calls.connectNative.push(name)
+        const port = fakePort(name)
+        queueMicrotask(() => {
+          if (nativeHost && nativeHost(port, chrome) !== false) return
+          let checked = false
+          Object.defineProperty(chrome.runtime, 'lastError', {
+            configurable: true,
+            get: () => {
+              checked = true
+              return { message: 'Specified native messaging host not found.' }
+            }
+          })
+          port.onDisconnect.fire(port)
+          Object.defineProperty(chrome.runtime, 'lastError', { configurable: true, writable: true, value: undefined })
+          calls.lastErrorChecked.push(checked)
+        })
+        return port
+      }
     },
     _tabs: tabs,
     _sessionStore: sessionStore,

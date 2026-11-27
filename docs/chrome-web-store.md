@@ -17,6 +17,11 @@ upload — the store rejects a re-upload of a version it has already seen.
 
 Dashboard → **Items** → **Add new item** → upload `dist/canopy-extension.zip`.
 
+The draft gets its item ID here, before any review. Put that ID in `storeExtensionIds` in
+`src/native-host.js` and release the npm package before you submit. From that release on, the
+daemon registers its native messaging host for the store build on every start, and the extension
+connects without a pairing code. The reviewer then only has to run the daemon.
+
 A one-time US$5 developer registration fee applies to the account if it has never published.
 
 ## 2. Store listing
@@ -148,6 +153,18 @@ holds the connection. The document renders nothing and loads no remote content �
 to own that socket and pass messages to the service worker, which performs the actual work.
 ```
 
+**`nativeMessaging`**
+
+```
+Lets the extension reach the Canopy daemon without asking the user to paste a pairing code. The
+Canopy package registers a native messaging host (com.arvoretech.canopy) on the user's machine,
+allowed only for this extension's id. The host relays the same messages the WebSocket bridge
+carries to the daemon on 127.0.0.1:4664, and proves the pairing secret stored on the machine to
+the daemon on the extension's behalf. It downloads nothing and runs no code sent by the
+extension. When the host is not installed, the extension falls back to the WebSocket bridge and
+the pairing code.
+```
+
 **Remote code:** answer **No, I am not using remote code.** All logic ships in `background.js`
 and `offscreen.js`.
 
@@ -187,14 +204,16 @@ Two things help materially:
 
    ```
    This extension is a bridge to a local open-source daemon; it is inert without it.
-   It also refuses to talk to any daemon that cannot prove a shared pairing code,
-   so step 3 is required — without it the badge stays "!" and nothing connects.
+   It only obeys a daemon that proves a pairing secret stored on this machine. The
+   daemon registers a native messaging host that makes that proof for the extension,
+   so no code has to be typed; step 3 is the manual fallback.
    To test:
      1. Install Node 20+.
      2. Run: npx @arvoretech/canopy
-     3. Run: npx @arvoretech/canopy pair
+        Within a minute the toolbar badge turns to "on".
+     3. Only if the badge shows "!" or stays empty, run: npx @arvoretech/canopy pair
         Copy the printed code into this extension's Details -> Extension options -> Save.
-     4. The toolbar badge turns to "on" once connected.
+     4. The toolbar badge reads "on" once connected.
      5. Open http://127.0.0.1:4664/ to see the cockpit.
      6. Run: npx @arvoretech/canopy open https://example.com --label "review test"
         A background tab opens in an amber "AI" group, dimmed, with an "Agent in control" pill,
@@ -216,4 +235,5 @@ Two things help materially:
 ## 6. After it is live
 
 Update the README's install step to point at the store URL, and keep "Load unpacked" documented
-as the developer path.
+as the developer path. If `storeExtensionIds` in `src/native-host.js` is still empty, fill it in
+now and release the npm package, or store users keep needing the pairing code.

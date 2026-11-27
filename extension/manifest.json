@@ -33,6 +33,7 @@
     "tabGroups",
     "alarms",
     "storage",
-    "offscreen"
+    "offscreen",
+    "nativeMessaging"
   ]
 }

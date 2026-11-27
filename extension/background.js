@@ -10,6 +10,12 @@ const outbox = []
 let bridge = null
 let creating = null
 
+const NATIVE_HOST = 'com.arvoretech.canopy'
+let native = null
+let nativeLinked = false
+let nativeMissing = false
+let nativeRetry = null
+
 // Pairing secret, shared with the daemon (~/.canopy/ext-secret, shown by
 // `canopy pair`) and pasted into the options page once. It is what stops any
 // unprivileged local process that grabs port 4664 — squatting it before Canopy
@@ -119,7 +125,87 @@ function toBridge(msg) {
 }
 
 function emit(payload) {
+  if (native) {
+    if (nativeLinked) postNative(native, payload)
+    return
+  }
   toBridge({ t: 'event', payload })
+}
+
+function chromeVersion() {
+  return navigator.userAgent.match(/(Chrome\/[\d.]+)/)?.[1] || 'chromium'
+}
+
+async function closeOffscreen() {
+  if (!(await hasOffscreen().catch(() => false))) return
+  await chrome.offscreen.closeDocument().catch(() => {})
+}
+
+function postNative(port, msg) {
+  try { port.postMessage(msg) } catch {}
+}
+
+function nativeStatus(state) {
+  if (state === 'connected') return badge('on', '#F59E0B', 'Canopy Bridge — connected')
+  if (state === 'refused') return badge('!', '#DC2626', 'Canopy Bridge — daemon failed the pairing check. Another process may hold port 4664.')
+  badge('', null, 'Canopy Bridge — waiting for the Canopy daemon')
+}
+
+async function answerDaemon(port, msg) {
+  if (msg.event === 'ping') return postNative(port, { event: 'pong' })
+  if (msg.id === undefined || typeof msg.op !== 'string') return
+  let res
+  try {
+    res = await runOp(msg.op, msg)
+  } catch (err) {
+    res = { ok: false, error: String(err && err.message || err) }
+  }
+  postNative(port, res.ok ? { id: msg.id, ok: true, result: res.result } : { id: msg.id, ok: false, error: res.error })
+}
+
+function connectNative() {
+  if (native) return true
+  if (!chrome.runtime.connectNative) return false
+  let port
+  try {
+    port = chrome.runtime.connectNative(NATIVE_HOST)
+  } catch {
+    return false
+  }
+  native = port
+  port.onMessage.addListener(async msg => {
+    if (msg.host === 'ready') {
+      nativeLinked = true
+      nativeMissing = false
+      return closeOffscreen()
+    }
+    if (msg.host === 'hello') {
+      const orphans = await liveAgentTabs().catch(() => [])
+      return postNative(port, { t: 'hello', browser: chromeVersion(), orphans })
+    }
+    if (msg.host === 'status') return nativeStatus(msg.state)
+    answerDaemon(port, msg)
+  })
+  port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError
+    if (native !== port) return
+    const wasLinked = nativeLinked
+    native = null
+    nativeLinked = false
+    if (!wasLinked) {
+      nativeMissing = true
+      return ensureOffscreen()
+    }
+    badge('', null, 'Canopy Bridge — disconnected')
+    clearTimeout(nativeRetry)
+    nativeRetry = setTimeout(ensureBridge, 2000)
+  })
+  return true
+}
+
+function ensureBridge() {
+  if (connectNative()) return
+  return ensureOffscreen()
 }
 
 async function runOp(op, a) {
@@ -243,15 +329,16 @@ chrome.tabs.onRemoved.addListener(async tabId => {
 // own; this is here for the case where the document itself is gone (browser
 // startup, a crash, an extension reload).
 chrome.alarms.create('canopy-keepalive', { periodInMinutes: 1 })
-chrome.alarms.onAlarm.addListener(() => ensureOffscreen())
-chrome.runtime.onStartup.addListener(() => ensureOffscreen())
-chrome.runtime.onInstalled.addListener(() => ensureOffscreen())
+chrome.alarms.onAlarm.addListener(() => ensureBridge())
+chrome.runtime.onStartup.addListener(() => ensureBridge())
+chrome.runtime.onInstalled.addListener(() => ensureBridge())
 chrome.action.onClicked.addListener(async () => {
-  if (!await pairingSecret()) return chrome.runtime.openOptionsPage()
-  ensureOffscreen()
+  if (native) return
+  if (nativeMissing && !await pairingSecret()) return chrome.runtime.openOptionsPage()
+  ensureBridge()
 })
 // Pasting a new code in the options page re-pairs without a browser restart.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.canopySecret) toBridge({ t: 'repair' })
+  if (area === 'local' && changes.canopySecret && !native) toBridge({ t: 'repair' })
 })
-ensureOffscreen()
+ensureBridge()
