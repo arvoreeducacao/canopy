@@ -301,6 +301,26 @@ test('on Windows the manifest goes in each browser registry key', () => {
   assert.equal(removed[0][0], 'delete')
 })
 
+test('the Windows launcher keeps a percent sign literal and refuses a quote', () => {
+  const base = { extensionIds: [someId], platform: 'win32', env: {}, nodePath: 'C:\\node\\node.exe', cliPath: 'C:\\canopy\\bin\\canopy.js', runReg: () => {} }
+  const dataDir = path.join(tempDir(), '100%path%')
+  const result = installNativeHost({ ...base, home: tempDir(), dataDir, port: 5000 })
+  const launcher = fs.readFileSync(result.launcher, 'utf8')
+  assert.ok(launcher.includes(`set "CANOPY_DATA_DIR=${dataDir.replace(/%/g, '%%')}"\r\n`))
+  assert.ok(launcher.includes('set "CANOPY_PORT=5000"\r\n'))
+  const home = tempDir()
+  assert.throws(() => installNativeHost({ ...base, home, dataDir: path.join(home, 'a"&calc') }), /cannot hold/)
+  assert.equal(fs.existsSync(path.join(home, 'a"&calc', 'native-host')), false)
+})
+
+test('a port that is not a TCP port is refused before anything is written', () => {
+  const home = tempDir()
+  for (const port of [Number.NaN, 0, 70000, 4664.5]) {
+    assert.throws(() => installNativeHost({ extensionIds: [someId], platform: 'linux', home, env: {}, cliPath: '/x', port }), /not a TCP port/)
+  }
+  assert.equal(fs.existsSync(path.join(home, '.canopy')), false)
+})
+
 test('uninstalling removes the host from every browser', () => {
   const home = tempDir()
   fs.mkdirSync(path.join(home, '.config', 'google-chrome'), { recursive: true })

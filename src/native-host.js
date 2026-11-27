@@ -229,12 +229,18 @@ const windowsRegistryKeys = [
 
 const shellQuote = value => `'${String(value).replace(/'/g, `'\\''`)}'`
 
+function batchValue(value) {
+  const text = String(value)
+  if (/["\r\n]/.test(text)) throw new Error(`a Windows launcher cannot hold ${JSON.stringify(text)}`)
+  return text.replace(/%/g, '%%')
+}
+
 function launcherScript({ platform, nodePath, cliPath, port, dataDir }) {
   if (platform === 'win32') {
     const lines = ['@echo off']
-    if (port) lines.push(`set "CANOPY_PORT=${port}"`)
-    if (dataDir) lines.push(`set "CANOPY_DATA_DIR=${dataDir}"`)
-    lines.push(`"${nodePath}" "${cliPath}" native-host %*`)
+    if (port) lines.push(`set "CANOPY_PORT=${batchValue(port)}"`)
+    if (dataDir) lines.push(`set "CANOPY_DATA_DIR=${batchValue(dataDir)}"`)
+    lines.push(`"${batchValue(nodePath)}" "${batchValue(cliPath)}" native-host %*`)
     return lines.join('\r\n') + '\r\n'
   }
   const env = []
@@ -277,6 +283,7 @@ export function installNativeHost({
   const invalid = extensionIds.filter(id => !extensionIdPattern.test(id))
   if (invalid.length) throw new Error(`not a Chrome extension id: ${invalid.join(', ')}`)
   if (!cliPath) throw new Error('cliPath is required')
+  if (port !== undefined && !(Number.isInteger(port) && port > 0 && port < 65536)) throw new Error(`not a TCP port: ${port}`)
   const paths = hostPaths({ platform, home, dataDir })
   const ids = [...new Set([...storeExtensionIds, ...readInstalledIds(paths.manifest), ...extensionIds])]
   if (!ids.length) return { installed: false, browsers: [], extensionIds: [] }
@@ -289,8 +296,9 @@ export function installNativeHost({
     allowed_origins: ids.map(id => `chrome-extension://${id}/`)
   }
   const body = JSON.stringify(manifest, null, 2) + '\n'
+  const launcher = launcherScript({ platform, nodePath, cliPath, port, dataDir })
   fs.mkdirSync(paths.dir, { recursive: true })
-  fs.writeFileSync(paths.launcher, launcherScript({ platform, nodePath, cliPath, port, dataDir }), { mode: 0o755 })
+  fs.writeFileSync(paths.launcher, launcher, { mode: 0o755 })
   fs.chmodSync(paths.launcher, 0o755)
   fs.writeFileSync(paths.manifest, body)
 
