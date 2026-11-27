@@ -92,6 +92,13 @@ extension's **Details → Extension options**. The extension will not talk to an
 which is what stops another local process from taking the bridge and, with it, the debugger on
 every tab in your browser.
 
+Or skip the code. Canopy can register a native messaging host, a small local program the browser
+starts on the extension's behalf, which proves the pairing secret to the daemon for it. The daemon
+registers it on every start for the extension ids it knows; for an unpacked extension, give the id
+once with `canopy install-native-host --ext-id <id>` (the options page shows the id and the exact
+command). The extension tries the native host first and falls back to the pairing code, so nothing
+changes for a browser that never got the host.
+
 If the browser is closed when an agent asks for a tab, the daemon launches it in the background
 (Arc or Chrome, macOS) and waits for the bridge to come up — no manual step.
 
@@ -100,6 +107,8 @@ The same binary is also a small CLI against a running daemon:
 ```bash
 canopy setup                 # one-shot install: token, Claude Code MCP + skill (--launchd: start at login)
 canopy pair                  # print the code that pairs the browser extension
+canopy install-native-host --ext-id <id>   # let that extension connect with no pairing code
+canopy uninstall-native-host # remove the native host from every browser
 canopy status                # connected browser + open agent tabs
 canopy open https://example.com --label "checking something"
 canopy tabs
@@ -365,7 +374,9 @@ What the design gives you:
   have open from dialing `127.0.0.1` and subscribing to the live frames of every agent tab.
 - **The extension bridge is paired.** Extension and daemon prove a shared secret to each other
   (HMAC over a nonce; the secret never crosses the wire), so no web page and no port-squatting
-  local process can pose as either. Pair once with `canopy pair`.
+  local process can pose as either. Pair once with `canopy pair`. The native messaging host makes
+  the same proof on the extension's behalf: the browser only starts it for the extension ids listed
+  in its manifest, and it reads the secret from `~/.canopy/ext-secret` like the daemon does.
 - **`http(s)` only.** `file:`, `chrome:`, `devtools:` and `view-source:` are refused, so a
   navigation cannot turn into a file read. `CANOPY_ALLOW_SCHEMES=file:` opts back in.
 - **Loopback only by default.** Nothing listens on a routable interface unless you explicitly

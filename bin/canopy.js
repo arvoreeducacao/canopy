@@ -14,9 +14,37 @@ const opt = (name, def) => {
   const i = args.indexOf(name)
   return i >= 0 && args[i + 1] ? args[i + 1] : def
 }
+const opts = name => args.flatMap((a, i) => (a === name && args[i + 1] ? [args[i + 1]] : []))
+
+if (args[0] === 'native-host') {
+  const { runNativeHost, readPairingSecret } = await import('../src/native-host.js')
+  const hostPort = Number(process.env.CANOPY_PORT || 4664)
+  const hostDataDir = process.env.CANOPY_DATA_DIR || undefined
+  const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))
+  runNativeHost({ daemonUrl: `ws://127.0.0.1:${hostPort}/ext`, secret: () => readPairingSecret(hostDataDir), version })
+  await new Promise(() => {})
+}
+
+async function registerNativeHost() {
+  const { installNativeHost } = await import('../src/native-host.js')
+  const hostPort = Number(opt('--port', process.env.CANOPY_PORT || 4664))
+  const extensionIds = [...opts('--ext-id'), ...(process.env.CANOPY_EXT_ID ? [process.env.CANOPY_EXT_ID] : [])]
+  return installNativeHost({
+    extensionIds,
+    port: hostPort === 4664 ? undefined : hostPort,
+    dataDir: opt('--data-dir', process.env.CANOPY_DATA_DIR || '') || undefined,
+    cliPath: fileURLToPath(import.meta.url)
+  })
+}
+
+function describeNativeHost(result) {
+  if (!result.installed) return 'skipped: no extension id to allow yet (pass --ext-id <id> for an unpacked extension)'
+  const where = result.browsers.length ? result.browsers.join(', ') : 'no supported browser found'
+  return `registered for ${where} (extension ${result.extensionIds.join(', ')})`
+}
 
 // ---------------- CLI mode: talk to a running daemon ----------------
-const COMMANDS = new Set(['setup', 'pair', 'open', 'tabs', 'status', 'close', 'screenshot', 'help'])
+const COMMANDS = new Set(['setup', 'pair', 'open', 'tabs', 'status', 'close', 'screenshot', 'install-native-host', 'uninstall-native-host', 'help'])
 
 // Mint-or-read a 0600 secret under ~/.canopy. Same files the daemon uses, so
 // setup can run before the daemon has ever started.
@@ -40,7 +68,7 @@ if (COMMANDS.has(args[0])) {
 // One-shot install: mint the token, register the MCP server in Claude Code,
 // install the Claude Code skill, and (optionally, macOS) a launchd agent so
 // the daemon starts at login. Idempotent — safe to re-run.
-function setup() {
+async function setup() {
   const home = os.homedir()
   const base = path.join(home, '.canopy')
   const port = Number(opt('--port', process.env.CANOPY_PORT || 4664))
@@ -72,6 +100,12 @@ function setup() {
     console.log(`[setup] skill installed at ${skillDst}`)
   } catch (e) {
     console.log(`[setup] could not install the skill: ${e.message}`)
+  }
+
+  try {
+    console.log(`[setup] native messaging host ${describeNativeHost(await registerNativeHost())}`)
+  } catch (e) {
+    console.log(`[setup] could not register the native messaging host: ${e.message}`)
   }
 
   if (flag('--launchd')) {
@@ -112,7 +146,7 @@ function setup() {
 next steps:
   1. start the daemon (skip if you used --launchd):  canopy
   2. load the extension: arc://extensions (or chrome://extensions) → Developer mode → Load unpacked → ${path.join(__dirname, '..', 'extension')}
-  3. pair it: the extension's Details → Extension options → paste  ${pairing.value}
+  3. pair it, unless the native messaging host above lists its id: the extension's Details → Extension options → paste  ${pairing.value}
   4. cockpit: http://127.0.0.1:${port}/`)
 }
 
@@ -122,6 +156,9 @@ async function cli(cmd, rest) {
 canopy --launch-chrome       start the daemon and open a test browser
 canopy setup [--launchd]     one-shot install: token, Claude Code MCP + skill
 canopy pair                  print the extension pairing code
+canopy install-native-host [--ext-id <id>]
+                             let the extension reach the daemon without a pairing code
+canopy uninstall-native-host remove the native messaging host from every browser
 canopy status                daemon/browser state
 canopy open <url> [--label]  open an agent tab
 canopy tabs                  list agent tabs
@@ -130,6 +167,18 @@ canopy screenshot <tab> [f]  save a PNG screenshot of the tab`)
     return
   }
   if (cmd === 'setup') return setup()
+  if (cmd === 'install-native-host') {
+    const result = await registerNativeHost()
+    console.log(`native messaging host ${describeNativeHost(result)}`)
+    if (result.installed) console.log(`launcher: ${result.launcher}`)
+    return
+  }
+  if (cmd === 'uninstall-native-host') {
+    const { uninstallNativeHost } = await import('../src/native-host.js')
+    const { browsers } = uninstallNativeHost({ dataDir: opt('--data-dir', process.env.CANOPY_DATA_DIR || '') || undefined })
+    console.log(browsers.length ? `native messaging host removed from ${browsers.join(', ')}` : 'no native messaging host was registered')
+    return
+  }
   if (cmd === 'pair') {
     const pairing = secretFile('ext-secret', 16)
     console.log(pairing.value)
@@ -257,6 +306,15 @@ function findSystemChrome() {
 }
 
 await startDaemon({ port, bind, publicHost, ssoHost, ssoHeader, ssoSecret, extId, mcpOrigin, dataDir, cdpUrl: process.env.CANOPY_CDP_URL || `http://127.0.0.1:${cdpPort}` })
+
+if (/^(127\.0\.0\.1|localhost|::1)$/.test(bind) && !flag('--no-native-host') && process.env.CANOPY_NATIVE_HOST !== '0') {
+  try {
+    const result = await registerNativeHost()
+    if (result.installed) console.log(`[canopy] native host ${describeNativeHost(result)}`)
+  } catch (e) {
+    console.log(`[canopy] native host not registered: ${e.message}`)
+  }
+}
 
 if (flag('--launch-chrome')) {
   const cft = findChromeForTesting()

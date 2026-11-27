@@ -1,5 +1,6 @@
 const input = document.getElementById('secret')
 const msg = document.getElementById('msg')
+document.getElementById('ext-id').textContent = chrome.runtime.id
 
 chrome.storage.local.get('canopySecret').then(({ canopySecret = '' }) => {
   input.value = canopySecret

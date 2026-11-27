@@ -8,8 +8,10 @@ the Chrome extension and the local daemon it talks to.
 
 ## The short version
 
-**Nothing Canopy Bridge reads ever leaves your computer.** The extension has exactly one network
-destination: `ws://127.0.0.1:4664`, a daemon running on your own machine. There is no server
+**Nothing Canopy Bridge reads ever leaves your computer.** The extension talks to one thing only:
+the Canopy daemon running on your own machine, either over a WebSocket to `ws://127.0.0.1:4664` or
+through the Canopy native messaging host, a local program from the same open-source package that
+relays to that same daemon. There is no server
 operated by Árvore Educação for this extension to talk to, and no data is sold or shared with
 anyone.
 

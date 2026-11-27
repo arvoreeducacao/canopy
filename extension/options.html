@@ -40,6 +40,11 @@
     Get the code by running <code>canopy pair</code>, or read
     <code>~/.canopy/ext-secret</code>.
   </p>
+  <p>
+    No code is needed once Canopy registers its native messaging host for this
+    extension: run <code>canopy install-native-host --ext-id <span id="ext-id"></span></code>
+    and the bridge connects on its own within a minute.
+  </p>
   <input id="secret" type="password" autocomplete="off" spellcheck="false" placeholder="pairing code">
   <button id="save">Save</button><span id="msg"></span>
   <script src="options.js"></script>
