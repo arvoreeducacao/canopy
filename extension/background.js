@@ -49,18 +49,39 @@ async function ensureOffscreen() {
 // Agent tab ids live in storage.session: it survives service-worker restarts
 // (an in-memory Set does not) and is cleared when the browser closes — so a
 // reconnecting daemon can find tabs a dead daemon left behind and close them.
+const agentTabs = new Set()
+let agentTabsLoaded = null
+
+function loadAgentTabs() {
+  agentTabsLoaded ||= chrome.storage.session.get('agentTabIds').then(({ agentTabIds = [] }) => {
+    for (const id of agentTabIds) agentTabs.add(id)
+  }, err => {
+    agentTabsLoaded = null
+    throw err
+  })
+  return agentTabsLoaded
+}
 async function agentTabIds() {
-  const { agentTabIds = [] } = await chrome.storage.session.get('agentTabIds')
-  return agentTabIds
+  await loadAgentTabs()
+  return [...agentTabs]
+}
+async function isAgentTab(tabId) {
+  await loadAgentTabs()
+  return agentTabs.has(tabId)
+}
+async function saveAgentTabs() {
+  await chrome.storage.session.set({ agentTabIds: [...agentTabs] })
 }
 async function rememberAgentTab(tabId) {
-  const ids = await agentTabIds()
-  if (!ids.includes(tabId)) await chrome.storage.session.set({ agentTabIds: [...ids, tabId] })
+  await loadAgentTabs()
+  if (agentTabs.has(tabId)) return
+  agentTabs.add(tabId)
+  await saveAgentTabs()
 }
 async function forgetAgentTab(tabId) {
   attached.delete(tabId)
-  const ids = await agentTabIds()
-  await chrome.storage.session.set({ agentTabIds: ids.filter(id => id !== tabId) })
+  await loadAgentTabs()
+  if (agentTabs.delete(tabId)) await saveAgentTabs()
 }
 async function liveAgentTabs() {
   const ids = await agentTabIds()
@@ -68,9 +89,15 @@ async function liveAgentTabs() {
   for (const id of ids) {
     try { await chrome.tabs.get(id); alive.push(id) } catch {}
   }
-  if (alive.length !== ids.length) await chrome.storage.session.set({ agentTabIds: alive })
+  if (alive.length !== ids.length) {
+    const aliveIds = new Set(alive)
+    for (const id of ids) if (!aliveIds.has(id)) agentTabs.delete(id)
+    await saveAgentTabs()
+  }
   return alive
 }
+
+const tabScopedOps = new Set(['cdp', 'attach', 'tabs.group', 'tabs.remove', 'tabs.activate'])
 
 // A debugger or tab event can wake this worker while the port is still down —
 // the offscreen document only reconnects it when it has something to say, and
@@ -96,6 +123,9 @@ function emit(payload) {
 }
 
 async function runOp(op, a) {
+  if (tabScopedOps.has(op) && !(await isAgentTab(a.tabId))) {
+    return { ok: false, error: `tab ${a.tabId} was not opened by Canopy` }
+  }
   if (op === 'cdp') {
     const result = await chrome.debugger.sendCommand({ tabId: a.tabId }, a.method, a.params || {})
     return { ok: true, result: result || {} }
@@ -112,7 +142,6 @@ async function runOp(op, a) {
       }
       attached.add(a.tabId)
     }
-    await rememberAgentTab(a.tabId)
     return { ok: true, result: {} }
   }
   if (op === 'tabs.create') {
