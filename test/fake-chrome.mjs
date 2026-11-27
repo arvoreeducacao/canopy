@@ -38,10 +38,12 @@ export function fakeChrome({ nativeHost = null } = {}) {
   const localStore = {}
   const debuggee = new Set()
   const calls = { attach: [], sendCommand: [], offscreen: 0, closedOffscreen: 0, connectNative: [], lastErrorChecked: [], optionsOpened: 0 }
+  const faults = { sessionGet: 0 }
   let offscreenOpen = false
 
   const chrome = {
     calls,
+    faults,
     tabs: {
       create: async ({ url }) => {
         const tab = { id: nextTabId++, url, title: '', active: false, windowId: 1, groupId: -1 }
@@ -76,7 +78,13 @@ export function fakeChrome({ nativeHost = null } = {}) {
     },
     storage: {
       session: {
-        get: async key => (key in sessionStore ? { [key]: sessionStore[key] } : {}),
+        get: async key => {
+          if (faults.sessionGet > 0) {
+            faults.sessionGet--
+            throw new Error('storage unavailable')
+          }
+          return key in sessionStore ? { [key]: sessionStore[key] } : {}
+        },
         set: async obj => { Object.assign(sessionStore, obj) }
       },
       local: {
