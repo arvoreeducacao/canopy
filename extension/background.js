@@ -55,6 +55,9 @@ let agentTabsLoaded = null
 function loadAgentTabs() {
   agentTabsLoaded ||= chrome.storage.session.get('agentTabIds').then(({ agentTabIds = [] }) => {
     for (const id of agentTabIds) agentTabs.add(id)
+  }, err => {
+    agentTabsLoaded = null
+    throw err
   })
   return agentTabsLoaded
 }
@@ -87,7 +90,8 @@ async function liveAgentTabs() {
     try { await chrome.tabs.get(id); alive.push(id) } catch {}
   }
   if (alive.length !== ids.length) {
-    for (const id of ids) if (!alive.includes(id)) agentTabs.delete(id)
+    const aliveIds = new Set(alive)
+    for (const id of ids) if (!aliveIds.has(id)) agentTabs.delete(id)
     await saveAgentTabs()
   }
   return alive

@@ -62,6 +62,18 @@ test('a closed agent tab stops being an agent tab', async () => {
   assert.deepEqual([...chrome._sessionStore.agentTabIds], [])
 })
 
+test('a failed storage read does not block later tab commands', async () => {
+  const chrome = fakeChrome()
+  chrome.faults.sessionGet = 1
+  loadBackground(chrome)
+  const { op } = connectBridge(chrome)
+  const first = await op('attach', { tabId: 1 })
+  assert.equal(first.ok, false)
+  const created = await op('tabs.create', { url: 'https://example.com/' })
+  assert.equal(created.ok, true)
+  assert.equal((await op('attach', { tabId: created.result.tabId })).ok, true)
+})
+
 test('listing tabs still covers every tab, so the daemon can report them', async () => {
   const { op, user } = await bridge()
   const listed = await op('tabs.list')
